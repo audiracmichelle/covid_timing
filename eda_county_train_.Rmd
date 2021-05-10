@@ -1,0 +1,614 @@
+
+```{r, include=FALSE}
+library(tidyverse)
+library(magrittr)
+library(feather)
+#library(lubridate)
+library(usmap)
+library(viridis)
+library(gridExtra)
+library(cowplot)
+```
+
+```{r}
+county_train_stayhome <- read_feather('./data/county_train_stayhome.feather')
+county_train_decrease <- read_feather('./data/county_train_decrease.feather')
+```
+
+```{r}
+stayhome_set <- county_train_stayhome %>% 
+  distinct(fips, county, state, nchs, pop, threshold_day, 
+           gt50, gt500, schools, restaurants, entertainment, stayhome,
+           days_btwn_stayhome_thresh, days_btwn_decrease_thresh,
+           decrease_50_total_visiting, decrease_50_recreation_visiting, decrease_50_school_visits, 
+           decrease_40_total_visiting, decrease_40_recreation_visiting, decrease_40_school_visits, 
+           decrease_on_stayhome, roll_decrease_on_stayhome, min_decrease)
+decrease_set <- county_train_decrease %>% 
+  distinct(fips, county, state, nchs, pop, threshold_day, 
+           gt50, gt500, schools, restaurants, entertainment, stayhome, 
+           days_btwn_stayhome_thresh, days_btwn_decrease_thresh,
+           decrease_50_total_visiting, decrease_50_recreation_visiting, decrease_50_school_visits, 
+           decrease_40_total_visiting, decrease_40_recreation_visiting, decrease_40_school_visits,  
+           decrease_on_stayhome, roll_decrease_on_stayhome, min_decrease)
+length(unique(c(stayhome_set$fips, decrease_set$fips)))
+county_set <- full_join(stayhome_set, decrease_set)
+table(county_set$nchs)
+```
+
+```{r}
+length(setdiff(stayhome_set$fips, decrease_set$fips))
+length(setdiff(decrease_set$fips, stayhome_set$fips))
+```
+
+```{r}
+nchs <- read_feather("./data/nchs.feather")
+```
+
+```{r}
+table(nchs$nchs)
+tot <- as.numeric(tapply(nchs$popul, nchs$nchs, sum, na.rm = TRUE))
+set <- as.numeric(tapply(county_set$pop, county_set$nchs, sum, na.rm = TRUE))
+set / tot
+set
+```
+
+```{r}
+intrv_labels = c("non-essential \n business closures", 
+                 "gatherings of \n 50+ ban", 
+                 "gatherings of \n 500+ ban", 
+                 "restaurants \n closures", 
+                 "schools closures", 
+                 "stay-at-home \n orders")
+
+p1 <- county_set %>% 
+  select(fips, gt50, gt500, 
+         schools, restaurants, entertainment, 
+         stayhome) %>% 
+  gather(key, value, -fips) %>% 
+  mutate(key = factor(key, labels = intrv_labels), 
+         title = "Array of non-pharmaceutical interventions") %>% 
+  ggplot(aes(x = value, fill = key)) + 
+  geom_bar() + 
+  scale_x_date(name = "", limits = as.Date(c("2020-03-10", "2020-04-15"))) + 
+  scale_y_continuous(limits = c(0,500)) +
+  theme(axis.text.x =  element_blank(), 
+        legend.key.width = unit(10, "pt")) + 
+  labs(fill = "") +
+  facet_wrap(~ title)
+leg1 <- get_legend(p1 + theme(legend.box.margin = margin(0, 0, 0, 0)))
+p1
+```
+
+```{r}
+intrv_labels = c("50% decrease in \n leisure visits", 
+                 "50% decrease in \n education visits",
+                 "50% decrease in \n total visits")
+
+p2 <- county_set %>% 
+  select(fips, 
+         decrease_50_school_visits, 
+         decrease_50_recreation_visiting,
+         decrease_50_total_visiting) %>% 
+  gather(key, value, -fips) %>% 
+  mutate(key = factor(key, labels = intrv_labels), 
+         title = "Array of mobility interventions") %>% 
+  ggplot(aes(x = value, fill = key)) + 
+  geom_bar() + 
+  scale_x_date(name = "", limits = as.Date(c("2020-03-10", "2020-04-15"))) + 
+  scale_y_continuous(limits = c(0,500)) + 
+  theme(legend.key.width = unit(10, "pt")) + 
+  labs(fill = "") +
+  facet_wrap(~ title)
+leg2 <- get_legend(p2 + theme(legend.box.margin = margin(0, 0, 0, 0)))
+p2
+```
+
+```{r}
+prow1 <- plot_grid(p1 + theme(legend.position="none"), 
+                   leg1,  ncol = 2, rel_widths = c(2,1))
+prow2 <- plot_grid(p2 + theme(legend.position="none"), 
+                   leg2, ncol = 2, rel_widths = c(2,1))
+plot_grid(prow1, prow2, nrow = 2)
+ggsave("./images/intrv_timeline.pdf", width = 5, height = 4)
+```
+
+```{r}
+summary(as.numeric(c(county_set$gt50 - county_set$stayhome, 
+                     county_set$gt50 - county_set$stayhome)))
+summary(as.numeric(c(county_set$restaurants - county_set$stayhome, 
+                     county_set$entertainment - county_set$stayhome)))
+summary(as.numeric(c(county_set$schools - county_set$stayhome)))
+```
+
+```{r}
+summary(c(county_set$gt50, 
+          county_set$gt500, 
+          county_set$schools, 
+          county_set$entertainment, 
+          county_set$restaurants))
+summary(county_set$stayhome)
+tapply(county_set$stayhome, county_set$nchs, summary)
+```
+
+```{r}
+summary(county_set$decrease_50_total_visiting)
+tapply(county_set$decrease_50_total_visiting, county_set$nchs, summary)
+```
+
+```{r}
+tapply(as.numeric(county_set$decrease_50_school_visits - county_set$schools), 
+       county_set$nchs, summary)
+```
+
+```{r}
+tapply(as.numeric(county_set$decrease_50_recreation_visiting - county_set$restaurants), county_set$nchs, summary)
+```
+
+```{r}
+county_set %>% 
+  group_by(schools, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, schools) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>% 
+  ggplot() +
+    geom_line(aes(x = schools, y = rel_n, col = nchs))
+```
+
+```{r}
+county_set %>% 
+  group_by(stayhome, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, stayhome) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n) %>% 
+  ungroup() %>% 
+  ggplot() +
+    geom_line(aes(x = stayhome, y = rel_n, col = nchs))
+```
+
+```{r}
+county_set %>% 
+  group_by(decrease_50_total_visiting, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, decrease_50_total_visiting) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n) %>% 
+  ungroup() %>% 
+  ggplot() +
+    geom_line(aes(x = decrease_50_total_visiting, y = rel_n, col = nchs))
+  
+```
+
+```{r}
+county_set %>% 
+   mutate(decrease_on_stayhome_ = 1 - decrease_on_stayhome) %>% 
+  ggplot() + 
+  geom_density(aes(x = decrease_on_stayhome_, col = nchs))
+
+county_set %>% 
+  mutate(roll_decrease_on_stayhome_ = 1 - roll_decrease_on_stayhome) %>% 
+  ggplot() + 
+  geom_density(aes(x = roll_decrease_on_stayhome_, col = nchs))
+
+county_set %>% 
+  mutate(min_decrease_ = 1 - min_decrease) %>% 
+  ggplot() + 
+  geom_density(aes(x = min_decrease_, col = nchs))
+```
+
+```{r}
+county_set %>% 
+   mutate(decrease_on_stayhome_ = 1 - decrease_on_stayhome) %>%
+  group_by(nchs) %>% 
+  summarise(mu = mean(decrease_on_stayhome_, na.rm = TRUE))
+```
+
+```{r}
+plot_a <- county_set %>% 
+   mutate(decrease_on_stayhome_ = 1 - decrease_on_stayhome) %>% 
+  ggplot() + 
+  geom_density(aes(x = decrease_on_stayhome_, 
+                   col = nchs, 
+                   fill = nchs, 
+                   alpha = if_else(nchs %in% c(1,6), 1, 0)), 
+               size = 1) + 
+  scale_alpha_continuous(range = c(0,0.25)) +
+  guides(alpha = FALSE) + 
+  labs(x = "Relative mobility decrease on stayhome") + 
+  theme_minimal_grid() +
+  theme(axis.text.y = element_blank())
+#ggsave("./images/decrease.pdf", height = 3, width = 4.5)
+plot_a
+```
+
+```{r}
+diff_decrease_ <- county_set %>% 
+  mutate(diff_decrease = roll_decrease_on_stayhome - min_decrease) %>% 
+  pull(diff_decrease) 
+  
+quantile(diff_decrease_, c(.75, .80, .9), na.rm = TRUE)
+
+plot_b <- county_set %>% 
+  mutate(diff_decrease = roll_decrease_on_stayhome - min_decrease, 
+         q = ifelse(diff_decrease <= 0.12, "1", NA)) %>%
+  ggplot() + 
+  geom_histogram(aes(x = diff_decrease, 
+                     fill = q), 
+                     col = "white", size = 0.7, alpha = 0.6) + 
+  #geom_vline(xintercept = 0.12, lty = 2) +
+  guides(fill = FALSE, col = FALSE) + 
+  labs(x = "Additional decrease after stayhome") + 
+  theme_minimal_grid() +
+  annotate("text", x=0.06, y=30, label= "80%", size = 7)
+#ggsave("./images/min_decrease.pdf", height = 3, width = 4.5)
+plot_b
+```
+
+```{r}
+plot_grid(plot_a, plot_b, nrow = 1, rel_widths = c(1.2,1))
+# ggsave("./images/decrease.pdf", width = 9, height = 3)
+```
+
+```{r}
+school_dist <- county_set %>% 
+  arrange(schools) %>% 
+  mutate(one = 1, 
+         cum_n = cumsum(one), 
+         rel_n = cum_n / n())
+
+mob_dist <- county_set %>% 
+  arrange(decrease_50_total_visiting) %>% 
+  mutate(one = 1, 
+         cum_n = cumsum(one), 
+         rel_n = cum_n / n())
+
+stay_dist <- county_set %>% 
+  arrange(stayhome) %>% 
+  mutate(one = 1, 
+         cum_n = cumsum(one), 
+         rel_n = cum_n / n())
+
+county_set %>% 
+  group_by(threshold_day, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, threshold_day) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>%
+  ggplot() +
+    geom_line(aes(x = threshold_day, y = rel_n, col = nchs), size = 1) +
+    geom_line(data = school_dist, aes(x = schools, y = rel_n), size = 1) +
+  geom_line(data = stay_dist, aes(x = stayhome, y = rel_n), size = 1) +
+  geom_line(data = mob_dist, aes(x = decrease_50_total_visiting, y = rel_n), size = 1) + 
+  labs(y="", x="a)") + 
+  guides(col = FALSE) +
+  theme_minimal_grid() + 
+  theme(plot.margin = margin(l=-1))
+```
+
+```{r}
+county_set <- county_set %>% 
+  mutate(days_btwn_decrease_stayhome = as.numeric(decrease_50_total_visiting - stayhome))
+
+summary(county_set$days_btwn_decrease_stayhome)
+```
+
+```{r}
+p1 <- county_set %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = nchs, y = days_btwn_stayhome_thresh, fill = nchs)) + 
+  guides(fill = FALSE) + 
+  labs(y = "Stayhome-at-home")
+
+p2 <- county_set %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = nchs, y = days_btwn_decrease_thresh, fill = nchs)) + 
+  guides(fill = FALSE) + 
+  labs(y = "Mobility decrease")
+
+plot_grid(p1, p2, nrow = 2)
+```
+
+```{r}
+nchs_labels = c("Large central metro", 
+                "Large fringe metro", 
+                "Medium metro", 
+                "Small metro", 
+                "Micropolitan", 
+                "None-core")
+county_set %>% 
+  group_by(threshold_day, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, threshold_day) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>%
+  mutate(NCHS = factor(nchs, labels = nchs_labels)) %>% 
+  ggplot() +
+    geom_line(aes(x = threshold_day, y = rel_n, col = NCHS), size = 1) + 
+  labs(y="", x="Threshold day") + 
+  theme_minimal_grid() + 
+  theme(plot.margin = margin(l=-1))
+ggsave("./images/threshold.pdf", width = 6, height = 3)
+```
+
+
+```{r}
+xx <- county_set %>% 
+  select(fips, nchs, days_btwn_stayhome_thresh, days_btwn_decrease_thresh) %>% 
+  pivot_longer(cols = starts_with("days_btwn"), 
+               names_to = "intrv", 
+               names_prefix = "days_btwn_", 
+               values_to = "days_btwn")
+nchs_labels = c("Large central metro", 
+                "Large fringe metro", 
+                "Medium metro", 
+                "Small metro", 
+                "Micropolitan", 
+                "None-core")
+intrv_labels = c("Mobility \n Decrease", "Stayhome \n Orders")
+xx %>% 
+  mutate(intrv = factor(intrv, labels = intrv_labels), 
+         nchs = factor(nchs, labels = nchs_labels)) %>% 
+  ggplot(aes(y = days_btwn, x = intrv, fill = nchs)) + 
+  geom_boxplot() +  
+  facet_wrap(~ nchs, ncol = 6) + 
+  guides(fill = FALSE) + 
+  labs(x = "", y = "Days since threshold") + 
+  theme_minimal_grid() 
+ggsave("./images/days_since_thresh.pdf", width = 12, height = 4)
+```
+
+```{r}
+nchs_labels = c("Large \ncentral \nmetro", 
+                "Large \nfringe \nmetro", 
+                "Medium \nmetro", 
+                "Small \nmetro", 
+                "Micropolitan", 
+                "None-core")
+xx <- county_set %>%  
+  mutate(days_btwn_stayhome_decrease = days_btwn_stayhome_thresh - days_btwn_decrease_thresh) 
+xx %>% 
+  mutate(nchs = factor(nchs, labels = nchs_labels)) %>% 
+  ggplot(aes(y = days_btwn_stayhome_decrease, x = nchs, fill = nchs)) + 
+  geom_boxplot() +
+  guides(fill = FALSE) + 
+  labs(x = "", y = "Days between stayhome \nand mobility decrease") + 
+  theme_minimal_grid() 
+#ggsave("./images/days_btwn_stayhome_decrease.pdf")
+```
+
+```{r}
+p1 <- county_set %>% 
+  ggplot() + 
+  geom_histogram(aes(x = days_btwn_stayhome_thresh, 
+                     fill = nchs), 
+                 position = "dodge", bins = 15, alpha = 0.75)
+
+p2 <- county_set %>% 
+  ggplot() + 
+  geom_histogram(aes(x = days_btwn_decrease_thresh, 
+                     fill = nchs), 
+                 position = "dodge", bins = 15, alpha = 0.75) 
+
+plot_grid(p1, p2, nrow = 2)
+```
+
+
+```{r}
+county_set %>% 
+  ggplot() + 
+  geom_density(aes(x = days_btwn_stayhome_thresh, col = nchs))
+
+summary(county_set$days_btwn_stayhome_thresh)
+
+county_set %>% 
+  ggplot() + 
+  geom_density(aes(x = days_btwn_decrease_thresh, col = nchs)) 
+
+summary(county_set$days_btwn_decrease_thresh)
+
+county_set %>% 
+  ggplot() + 
+  geom_density(aes(x = days_btwn_decrease_stayhome, col = nchs))
+```
+
+```{r}
+summary(stayhome_set$days_btwn_stayhome_thresh)
+#summary(decrease_set$days_btwn_stayhome_thresh)
+#summary(stayhome_set$days_btwn_decrease_thresh)
+summary(decrease_set$days_btwn_decrease_thresh)
+summary(county_set$days_btwn_decrease_stayhome)
+```
+
+```{r}
+tapply(county_set$days_btwn_stayhome_thresh, county_set$nchs, median, na.rm = TRUE)
+tapply(county_set$days_btwn_decrease_thresh, county_set$nchs, median, na.rm = TRUE)
+tapply(county_set$days_btwn_decrease_stayhome, county_set$nchs, median, na.rm = TRUE)
+```
+
+```{r}
+tapply(stayhome_set$days_btwn_stayhome_thresh, stayhome_set$nchs, quantile, 0.25)
+tapply(decrease_set$days_btwn_decrease_thresh, decrease_set$nchs, quantile, 0.25)
+tapply(county_set$days_btwn_decrease_stayhome, county_set$nchs, quantile, 0.25, na.rm = TRUE)
+```
+
+```{r}
+tapply(stayhome_set$days_btwn_stayhome_thresh, stayhome_set$nchs, quantile, 0.75)
+tapply(decrease_set$days_btwn_decrease_thresh, decrease_set$nchs, quantile, 0.75)
+tapply(county_set$days_btwn_decrease_stayhome, county_set$nchs, quantile, 0.75, na.rm = TRUE)
+```
+
+```{r}
+plot_a <- county_set %>% 
+  group_by(threshold_day, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, threshold_day) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>%
+  ggplot() +
+    geom_line(aes(x = threshold_day, y = rel_n, col = nchs), size = 1) + 
+  labs(y="", x="a)") + 
+  guides(col = FALSE) +
+  theme_minimal_grid() + 
+  theme(plot.margin = margin(l=-1))
+plot_a
+
+```
+
+```{r}
+county_set %>% 
+  group_by(nchs) %>% 
+  summarise(mean(threshold_day))
+```
+
+```{r}
+plot_b <- county_set %>% 
+  select(nchs, days_btwn_stayhome_thresh) %>% 
+  filter(!is.na(days_btwn_stayhome_thresh)) %>% 
+  group_by(days_btwn_stayhome_thresh, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, days_btwn_stayhome_thresh) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>% 
+  ggplot() +
+   geom_line(aes(x = days_btwn_stayhome_thresh, y = rel_n, col = nchs), size = 1) +
+   scale_x_continuous(name = "b)",
+                    breaks = c(-30,-20,-10,0,10,20,30),
+                    limits = c(-35, 30)) +
+   geom_vline(xintercept = 0, lty = 2, size = 0.75) +
+  labs(y="") + 
+  guides(col = FALSE) +
+  theme_minimal_grid() + 
+  theme(axis.text.y =  element_blank(), 
+        plot.margin = margin(l=-1))  
+plot_b
+```
+
+```{r}
+plot_c <- county_set %>% 
+  select(nchs, days_btwn_decrease_thresh) %>% 
+  filter(!is.na(days_btwn_decrease_thresh)) %>% 
+  group_by(days_btwn_decrease_thresh, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, days_btwn_decrease_thresh) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>% 
+  ggplot() +
+   geom_line(aes(x = days_btwn_decrease_thresh, y = rel_n, col = nchs), size = 1) +
+   geom_vline(xintercept = 0, lty = 2, size = 0.75) +
+   scale_x_continuous(name = "c)",
+                    breaks = c(-30,-20,-10,0,10,20,30),
+                    limits = c(-35, 30)) + 
+  labs(y="") + 
+  theme_minimal_grid() + 
+  theme(axis.text.y =  element_blank(), 
+        plot.margin = margin(l=-1))  
+plot_c
+```
+
+```{r}
+plot_grid(plot_a, plot_b, plot_c, nrow = 1, rel_widths = c(1,1,1.15))
+#ggsave("./images/timing.pdf", width = 9, height = 3)
+```
+
+```{r}
+county_set %>% 
+  select(nchs, days_btwn_stayhome_thresh) %>% 
+  filter(!is.na(days_btwn_stayhome_thresh)) %>% 
+  group_by(days_btwn_stayhome_thresh, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, days_btwn_stayhome_thresh) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>% 
+  filter(days_btwn_stayhome_thresh %in% 0)
+
+county_set %>% 
+  select(nchs, days_btwn_decrease_thresh) %>% 
+  filter(!is.na(days_btwn_decrease_thresh)) %>% 
+  group_by(days_btwn_decrease_thresh, nchs) %>% 
+    summarise(n = n()) %>% 
+  ungroup() %>% 
+  arrange(nchs, days_btwn_decrease_thresh) %>% 
+  group_by(nchs) %>% 
+    mutate(sum_n = sum(n), 
+           cum_n = cumsum(n), 
+           rel_n = cum_n / sum_n
+           ) %>% 
+  ungroup() %>% 
+  filter(nchs == 6)
+```
+
+## Looking for Examples to include in the six panel plot
+
+```{r}
+county_set %>% 
+  filter(days_btwn_decrease_stayhome <=  1,
+         days_btwn_decrease_stayhome >= -1 
+         ) %>% 
+  select(county, state, nchs, days_btwn_decrease_stayhome) %>% 
+  arrange(nchs)
+```
+
+```{r}
+county_set %>% 
+  filter(state == "New York"
+         ) %>% 
+  select(county, state, nchs, days_btwn_decrease_stayhome, stayhome, decrease_50_total_visiting) %>% 
+  arrange(nchs)
+```
+
+```{r}
+county_set %>% 
+  filter(days_btwn_decrease_stayhome < 0) %>% 
+  select(county, state, nchs, 
+         days_btwn_decrease_stayhome, 
+         stayhome, decrease_50_total_visiting) %>%
+  arrange( nchs)
+```
+
+```{r}
+county_train_stayhome %>% 
+  filter(date == stayhome) %>% 
+  select(fips, nchs, date, stayhome, days_since_thresh)
+```
