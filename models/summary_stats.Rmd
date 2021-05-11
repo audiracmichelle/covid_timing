@@ -1,0 +1,614 @@
+
+```{r}
+library(tidyverse)
+library(magrittr)
+library(feather)
+library(gridExtra)
+library(cowplot)
+```
+
+```{r}
+county_stayhome <- read_feather("../data/county_future_stayhome.feather")
+#dim(county_stayhome)
+#summary(county_stayhome$date[county_stayhome$index_desc == 1])
+
+county_stayhome %<>%
+  filter(date <= as.Date("2020-05-05"))
+#dim(county_stayhome)
+
+county_decrease <- read_feather("../data/county_future_decrease.feather")
+#dim(county_decrease)
+#summary(county_decrease$date[county_decrease$index_desc == 1])
+
+county_decrease %<>%
+  filter(date <= as.Date("2020-05-05"))
+#dim(county_decrease)
+
+# fips_ <- intersect(unique(county_stayhome$fips), 
+#                    unique(county_decrease$fips))
+# length(fips_)
+
+county_stayhome %<>% 
+  mutate(row = row_number()) %>% 
+  group_by(fips) %>% 
+  arrange(date) %>% 
+  mutate(y_eff = cumsum(y), 
+         index = row_number(), 
+         index_desc = sort(index, decreasing = TRUE)) %>%
+  ungroup() %>% 
+  arrange(row)
+
+county_decrease %<>% 
+  mutate(row = row_number()) %>% 
+  group_by(fips) %>% 
+  arrange(date) %>% 
+  mutate(y_eff = cumsum(y), 
+         index = row_number(), 
+         index_desc = sort(index, decreasing = TRUE)) %>%
+  ungroup() %>% 
+  arrange(row)
+```
+
+### ------ stayhome
+
+```{r}
+county_fit <- readRDS("./stay_home/county_future_fit.rds")
+county_ctr1 <- readRDS("./stay_home/county_future_ctr1.rds")
+county_ctr3 <- readRDS("./stay_home/county_future_ctr3.rds")
+```
+
+```{r}
+## generate cumulative effect summary
+# county_fit_effect <- matrix(nrow = 500, ncol = 0)
+# county_ctr1_effect <- matrix(nrow = 500, ncol = 0)
+# county_ctr3_effect <- matrix(nrow = 500, ncol = 0)
+# for(f in unique(county_stayhome$fips)){
+#   county_idx <- which(county_stayhome$fips == f)
+#   fit <- county_fit[, county_idx]
+#   fit <- t(apply(fit, 1, cumsum))
+#   ctr1 <- county_ctr1[, county_idx]
+#   ctr1 <- t(apply(ctr1, 1, cumsum))
+#   ctr3 <- county_ctr3[, county_idx]
+#   ctr3 <- t(apply(ctr3, 1, cumsum))
+#   
+#   county_fit_effect <- cbind(county_fit_effect, fit)
+#   county_ctr1_effect <- cbind(county_ctr1_effect, ctr1)
+#   county_ctr3_effect <- cbind(county_ctr3_effect, ctr3)
+# }
+```
+
+```{r}
+length(unique(county_stayhome$fips))
+
+county_stayhome %>% 
+  filter(date == as.Date("2020-04-20")#, 
+         #fips %in% fips_
+         ) %>% 
+  group_by(nchs) %>% 
+  summarise(y_eff = sum(y_eff)) %>% 
+  write.csv(row.names = FALSE)
+```
+
+```{r}
+county_stayhome %>% 
+  filter(date == as.Date("2020-04-20")#, 
+         #fips %in% fips_
+         ) %>% 
+  group_by(nchs) %>% 
+  summarise(pop = sum(pop)) %>% 
+  write.csv(row.names = FALSE)
+```
+
+
+```{r}
+eff_fit_summary <- tibble()
+dates <- seq(as.Date("2020-03-11"), as.Date("2020-04-21"), by = "day")
+
+for (x in 1:6) {
+  eff_fit <- list()
+  eff_late <- list()
+  eff_early <- list()
+  for (d in dates) {
+    county_idx <- which(county_stayhome$date == d & 
+                        county_stayhome$nchs == x)# & 
+                        #county_stayhome$fips %in% fips_)
+    if(length(county_idx) > 1) {
+      eff_fit[[as.character(d)]] <- apply(county_fit[, county_idx], 1, sum)
+      eff_late[[as.character(d)]] <- apply(county_ctr1[, county_idx], 1, sum)
+      eff_early[[as.character(d)]] <- apply(county_ctr3[, county_idx], 1,sum)
+    } else {
+      eff_fit[[as.character(d)]] <- 0
+      eff_late[[as.character(d)]] <- 0
+      eff_early[[as.character(d)]]<- 0
+    }
+  }
+  
+  eff_fit_ <- apply(as.data.frame(eff_fit), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "fit")
+  eff_late_ <- apply(as.data.frame(eff_late), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "late")
+  eff_early_ <- apply(as.data.frame(eff_early), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "early")
+
+  eff_fit_summary <- bind_rows(eff_fit_summary, 
+                               eff_fit_, 
+                               eff_late_, 
+                               eff_early_)
+}
+names(eff_fit_summary) <- c("min", "q025", "median", "q975", "max",
+                            "date", "nchs", "type")
+plots <- list()
+for(x in 1:6) {
+  plots[[x]] <- eff_fit_summary %>% 
+  filter(nchs == x) %>% 
+    ggplot() + 
+    geom_line(aes(x=date, y=median, col = type)) + 
+    geom_ribbon(aes(x=date, ymin=q025, ymax=q975, fill = type, alpha = 0.5)) + 
+    labs(title = paste("nchs", x), 
+         x = "", y = "") + 
+    scale_fill_manual(values = c("#009E73","#0072B2","#D55E00")) +
+    scale_color_manual(values = c("#009E73","#0072B2","#D55E00")) + 
+    guides(fill = FALSE, alpha = FALSE, color = FALSE)
+}
+plots
+prow1 <- plot_grid(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
+prow2 <- plot_grid(plots[[4]], plots[[5]], plots[[6]], ncol = 3)
+plot_grid(prow1,prow2, nrow = 2)
+ggsave("../images/cum_effects_stayhome.png", width = 7, height = 6)
+```
+
+```{r}
+table_stayhome <- tibble()
+dates <- seq(as.Date("2020-03-11"), as.Date("2020-04-21"), by = "day")
+
+
+for (x in 1:6) {
+  eff_fit <- list()
+  eff_late <- list()
+  eff_early <- list()
+  for (d in dates) {
+    county_idx <- which(county_stayhome$date == d & 
+                        county_stayhome$nchs == x #& 
+                        #county_stayhome$fips %in% fips_
+                        )
+    if(length(county_idx) > 1) {
+      eff_fit[[as.character(d)]] <- apply(county_fit[, county_idx], 1, sum)
+      eff_late[[as.character(d)]] <- apply(county_ctr1[, county_idx], 1, sum)
+      eff_early[[as.character(d)]] <- apply(county_ctr3[, county_idx], 1,sum)
+    } else {
+      eff_fit[[as.character(d)]] <- 0
+      eff_late[[as.character(d)]] <- 0
+      eff_early[[as.character(d)]]<- 0
+    }
+  }
+  
+  eff_fit_ <- apply(as.data.frame(eff_fit), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "fit")
+    
+  eff_late_fit_ <- (apply(as.data.frame(eff_late), 1, cumsum) - apply(as.data.frame(eff_fit), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "late_fit")
+
+  eff_fit_early_ <- (apply(as.data.frame(eff_fit), 1, cumsum) - apply(as.data.frame(eff_early), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble(eff_fit) %>%
+    mutate(date = dates, nchs = x, type = "fit_early")
+
+  table_stayhome <- bind_rows(table_stayhome, 
+                               eff_fit_,
+                               eff_late_fit_, 
+                               eff_fit_early_)
+}
+names(table_stayhome) <- c("min", "q025", "median", "q975", "max",
+                            "date", "nchs", "type")
+# plots <- list()
+# for(x in 1:6) {
+#   plots[[x]] <- table_stayhome %>% 
+#   filter(nchs == x, 
+#          type != "fit") %>% 
+#     ggplot() + 
+#     geom_line(aes(x=date, y=median, col = type)) + 
+#     geom_ribbon(aes(x=date, ymin=q025, ymax=q975, fill = type, alpha = 0.5)) + 
+#     labs(title = x)
+# }
+# plots
+
+table_stayhome %>% 
+  filter(date == as.Date("2020-04-20")) %>% 
+  select(type, nchs, median, q025, q975) %>% write.csv(row.names = FALSE)
+```
+
+```{r}
+table_stayhome_tot <- tibble()
+dates <- seq(as.Date("2020-03-11"), as.Date("2020-04-21"), by = "day")
+
+  eff_fit <- list()
+  eff_late <- list()
+  eff_early <- list()
+  for (d in dates) {
+    county_idx <- which(county_stayhome$date == d)
+    if(length(county_idx) > 1) {
+      eff_fit[[as.character(d)]] <- apply(county_fit[, county_idx], 1, sum)
+      eff_late[[as.character(d)]] <- apply(county_ctr1[, county_idx], 1, sum)
+      eff_early[[as.character(d)]] <- apply(county_ctr3[, county_idx], 1,sum)
+    } else {
+      eff_fit[[as.character(d)]] <- 0
+      eff_late[[as.character(d)]] <- 0
+      eff_early[[as.character(d)]]<- 0
+    }
+  }
+  
+  eff_fit_ <- apply(as.data.frame(eff_fit), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, type = "fit")
+    
+  eff_late_fit_ <- (apply(as.data.frame(eff_late), 1, cumsum) - apply(as.data.frame(eff_fit), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, type = "late_fit")
+
+  eff_fit_early_ <- (apply(as.data.frame(eff_fit), 1, cumsum) - apply(as.data.frame(eff_early), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble(eff_fit) %>%
+    mutate(date = dates, type = "fit_early")
+
+  table_stayhome_tot <- bind_rows(table_stayhome_tot, 
+                               eff_fit_,
+                               eff_late_fit_, 
+                               eff_fit_early_)
+  
+names(table_stayhome_tot) <- c("min", "q025", "median", "q975", "max", "date", "type")
+
+table_stayhome_tot %>% 
+  filter(date == as.Date("2020-04-20")) %>% 
+  select(type, median, q025, q975) %>% write.csv(row.names = FALSE)
+```
+
+```{r}
+# eff_summary <- data.frame()
+# 
+# for(x in 1:6) {
+#   county_idx <- which(county_stayhome$date == as.Date("2020-04-20") & 
+#                       county_stayhome$nchs == x & 
+#                         county_stayhome$fips %in% fips_)
+#   #county_pop <- county_stayhome$pop[county_idx]
+#   sum(county_stayhome$y_eff[county_idx])
+#   #sum(county_pop)
+# 
+#   eff <- list()
+#   eff[["fit"]] <- apply(county_fit_effect[, county_idx], 1, sum)
+#   #summary(eff[["fit"]])
+#   #summary(fit_eff / sum(county_pop) * 1e6)
+#   eff[["late"]] <- apply(county_ctr1_effect[, county_idx], 1, sum)
+#   eff[["early"]] <- apply(county_ctr3_effect[, county_idx], 1,sum)
+#   eff[["fit_early"]] <- apply(county_fit_effect[, county_idx] - 
+#                               county_ctr3_effect[, county_idx], 1,sum)
+#   eff[["late_fit"]] <- apply(county_ctr1_effect[, county_idx] - 
+#                              county_fit_effect[, county_idx], 1,sum)
+#   eff_summary_ <- apply(sapply(eff, quantile, c(0.0, 0.05, 0.5, 0.5, 0.95, 1)), 1, function(x) x)
+#   #eff_summary_ <- apply(sapply(eff, summary), 1, function(x) x)
+# 
+#   tag = paste0("nchs_", x)
+#   rownames(eff_summary_) <- paste(rownames(eff_summary_), tag, sep = "_")
+# 
+#   eff_summary <- rbind(eff_summary, eff_summary_)
+# }
+# 
+#   county_idx <- which(county_stayhome$date == as.Date("2020-04-20"), 
+#                       county_stayhome$fips %in% fips_)
+#   #county_pop <- county_stayhome$pop[county_idx]
+#   sum(county_stayhome$y_eff[county_idx])
+#   #sum(county_pop)
+# 
+#   eff <- list()
+#   eff[["fit"]] <- apply(county_fit_effect[, county_idx], 1, sum)
+#   #summary(eff[["fit"]])
+#   #summary(fit_eff / sum(county_pop) * 1e6)
+#   eff[["late"]] <- apply(county_ctr1_effect[, county_idx], 1, sum)
+#   eff[["early"]] <- apply(county_ctr3_effect[, county_idx], 1,sum)
+#   eff[["fit_early"]] <- apply(county_fit_effect[, county_idx] - 
+#                               county_ctr3_effect[, county_idx], 1,sum)
+#   eff[["late_fit"]] <- apply(county_ctr1_effect[, county_idx] - 
+#                              county_fit_effect[, county_idx], 1,sum)
+#   eff_summary_ <- apply(sapply(eff, quantile, c(0.0, 0.05, 0.5, 0.5, 0.95, 1)), 1, function(x) x)
+#   #eff_summary_ <- apply(sapply(eff, summary), 1, function(x) x)
+# 
+#   tag = "total"
+#   rownames(eff_summary_) <- paste(rownames(eff_summary_), tag, sep = "_")
+# 
+#   eff_summary <- rbind(eff_summary, eff_summary_)
+# 
+# eff_summary %>% 
+#   write.csv()
+```
+
+```{r}
+# county_stayhome %<>% 
+#   mutate(
+#     fit_mu_eff = apply(county_fit_effect, 2, mean),
+#     fit_med_eff = apply(county_fit_effect, 2, quantile, probs = 0.5), # use posterior median to hand skewness
+#     fit_lo_eff = apply(county_fit_effect, 2, quantile, probs = 0.05),
+#     fit_hi_eff = apply(county_fit_effect, 2, quantile, probs = 0.95))
+# 
+# county_stayhome %<>% 
+#   mutate(
+#     ctr1_mu_eff = apply(county_ctr1_effect, 2, mean),
+#     ctr1_med_eff = apply(county_ctr1_effect, 2, quantile, probs = 0.5), # use posterior median to hand skewness
+#     ctr1_lo_eff = apply(county_ctr1_effect, 2, quantile, probs = 0.05),
+#     ctr1_hi_eff = apply(county_ctr1_effect, 2, quantile, probs = 0.95),
+#     ctr3_mu_eff = apply(county_ctr3_effect, 2, mean),
+#     ctr3_med_eff = apply(county_ctr3_effect, 2, quantile, probs = 0.5), # use posterior median to hand skewness
+#     ctr3_lo_eff = apply(county_ctr3_effect, 2, quantile, probs = 0.05),
+#     ctr3_hi_eff = apply(county_ctr3_effect, 2, quantile, probs = 0.95))
+
+# xx <- county_stayhome %>% 
+#   filter(index_desc == 1)
+# 
+# summary(xx$date)
+# summary(xx$days_since_intrv_stayhome)
+# 
+# xx %<>% 
+#   group_by(nchs) %>% 
+#   summarize(y_eff = median(y_eff / pop),
+#             fit_med_eff = median(fit_med_eff / pop),
+#             fit_lo_eff = median(fit_lo_eff / pop),
+#             fit_hi_eff = median(fit_hi_eff / pop),
+#             late_med_eff = median(ctr1_med_eff / pop), 
+#             late_lo_eff = median(ctr1_lo_eff / pop), 
+#             late_hi_eff = median(ctr1_hi_eff / pop), 
+#             early_med_eff = median(ctr3_med_eff / pop), 
+#             early_lo_eff = median(ctr3_lo_eff / pop), 
+#             early_hi_eff = median(ctr3_hi_eff / pop))
+
+```
+
+### ------ decrease
+
+```{r}
+county_fit <- readRDS("./mobility_decrease/county_future_fit.rds")
+county_ctr1 <- readRDS("./mobility_decrease/county_future_ctr1.rds")
+county_ctr3 <- readRDS("./mobility_decrease/county_future_ctr3.rds")
+```
+
+```{r}
+length(unique(county_decrease$fips))
+
+county_decrease %>% 
+  filter(date == as.Date("2020-04-20")#, 
+         #fips %in% fips_
+         ) %>% 
+  group_by(nchs) %>% 
+  summarise(y_eff = sum(y_eff)) %>% 
+  write.csv(row.names = FALSE)
+```
+
+```{r}
+county_decrease %>% 
+  filter(date == as.Date("2020-04-20")#, 
+         #fips %in% fips_
+         ) %>% 
+  group_by(nchs) %>% 
+  summarise(pop = sum(pop)) %>% 
+  write.csv(row.names = FALSE)
+```
+
+```{r}
+eff_fit_summary <- tibble()
+dates <- seq(as.Date("2020-03-11"), as.Date("2020-04-21"), by = "day")
+
+for (x in 1:6) {
+  eff_fit <- list()
+  eff_late <- list()
+  eff_early <- list()
+  for (d in dates) {
+    county_idx <- which(county_decrease$date == d & 
+                        county_decrease$nchs == x #& 
+                        #county_decrease$fips %in% fips_
+                        )
+    if(length(county_idx) > 1) {
+      eff_fit[[as.character(d)]] <- apply(county_fit[, county_idx], 1, sum)
+      eff_late[[as.character(d)]] <- apply(county_ctr1[, county_idx], 1, sum)
+      eff_early[[as.character(d)]] <- apply(county_ctr3[, county_idx], 1,sum)
+    } else {
+      eff_fit[[as.character(d)]] <- 0
+      eff_late[[as.character(d)]] <- 0
+      eff_early[[as.character(d)]]<- 0
+    }
+  }
+  
+  eff_fit_ <- apply(as.data.frame(eff_fit), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "fit")
+  eff_late_ <- apply(as.data.frame(eff_late), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "late")
+  eff_early_ <- apply(as.data.frame(eff_early), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "early")
+
+  eff_fit_summary <- bind_rows(eff_fit_summary, 
+                               eff_fit_, 
+                               eff_late_, 
+                               eff_early_)
+}
+names(eff_fit_summary) <- c("min", "q025", "median", "q975", "max",
+                            "date", "nchs", "type")
+plots <- list()
+for(x in 1:6) {
+  plots[[x]] <- eff_fit_summary %>% 
+  filter(nchs == x) %>% 
+    ggplot() + 
+    geom_line(aes(x=date, y=median, col = type)) + 
+    geom_ribbon(aes(x=date, ymin=q025, ymax=q975, fill = type, alpha = 0.5)) + 
+    labs(title = paste("nchs", x), 
+         x = "", y = "") + 
+    scale_fill_manual(values = c("#009E73","#0072B2","#D55E00")) +
+    scale_color_manual(values = c("#009E73","#0072B2","#D55E00")) + 
+    guides(fill = FALSE, alpha = FALSE, color = FALSE)
+}
+plots
+prow1 <- plot_grid(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
+prow2 <- plot_grid(plots[[4]], plots[[5]], plots[[6]], ncol = 3)
+plot_grid(prow1,prow2, nrow = 2)
+ggsave("./cum_effects_decrease.png", width = 7, height = 6)
+```
+
+```{r}
+table_decrease <- tibble()
+dates <- seq(as.Date("2020-03-11"), as.Date("2020-04-21"), by = "day")
+
+for (x in 1:6) {
+  eff_fit <- list()
+  eff_late <- list()
+  eff_early <- list()
+  for (d in dates) {
+    county_idx <- which(county_decrease$date == d & 
+                        county_decrease$nchs == x #& 
+                        #county_decrease$fips %in% fips_
+                        )
+    if(length(county_idx) > 1) {
+      eff_fit[[as.character(d)]] <- apply(county_fit[, county_idx], 1, sum)
+      eff_late[[as.character(d)]] <- apply(county_ctr1[, county_idx], 1, sum)
+      eff_early[[as.character(d)]] <- apply(county_ctr3[, county_idx], 1,sum)
+    } else {
+      eff_fit[[as.character(d)]] <- 0
+      eff_late[[as.character(d)]] <- 0
+      eff_early[[as.character(d)]]<- 0
+    }
+  }
+  
+  eff_fit_ <- apply(as.data.frame(eff_fit), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "fit")
+    
+  eff_late_fit_ <- (apply(as.data.frame(eff_late), 1, cumsum) - apply(as.data.frame(eff_fit), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, nchs = x, type = "late_fit")
+
+  eff_fit_early_ <- (apply(as.data.frame(eff_fit), 1, cumsum) - apply(as.data.frame(eff_early), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble(eff_fit) %>%
+    mutate(date = dates, nchs = x, type = "fit_early")
+
+  table_decrease <- bind_rows(table_decrease, 
+                               eff_fit_,
+                               eff_late_fit_, 
+                               eff_fit_early_)
+}
+
+names(table_decrease) <- c("min", "q025", "median", "q975", "max",
+                            "date", "nchs", "type")
+# plots <- list()
+# for(x in 1:6) {
+#   plots[[x]] <- table_decrease %>% 
+#   filter(nchs == x, 
+#          type != "fit") %>% 
+#     ggplot() + 
+#     geom_line(aes(x=date, y=median, col = type)) + 
+#     geom_ribbon(aes(x=date, ymin=q025, ymax=q975, fill = type, alpha = 0.5)) + 
+#     labs(title = x)
+# }
+# plots
+
+table_decrease %>% 
+  filter(date == as.Date("2020-04-20")) %>% 
+  select(type, nchs, median, q025, q975) %>% write.csv(row.names = FALSE)
+```
+
+```{r}
+table_decrease_tot <- tibble()
+dates <- seq(as.Date("2020-03-11"), as.Date("2020-04-21"), by = "day")
+
+  eff_fit <- list()
+  eff_late <- list()
+  eff_early <- list()
+  for (d in dates) {
+    county_idx <- which(county_decrease$date == d)
+    if(length(county_idx) > 1) {
+      eff_fit[[as.character(d)]] <- apply(county_fit[, county_idx], 1, sum)
+      eff_late[[as.character(d)]] <- apply(county_ctr1[, county_idx], 1, sum)
+      eff_early[[as.character(d)]] <- apply(county_ctr3[, county_idx], 1,sum)
+    } else {
+      eff_fit[[as.character(d)]] <- 0
+      eff_late[[as.character(d)]] <- 0
+      eff_early[[as.character(d)]]<- 0
+    }
+  }
+  
+  eff_fit_ <- apply(as.data.frame(eff_fit), 1, cumsum) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, type = "fit")
+    
+  eff_late_fit_ <- (apply(as.data.frame(eff_late), 1, cumsum) - apply(as.data.frame(eff_fit), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble() %>%
+    mutate(date = dates, type = "late_fit")
+
+  eff_fit_early_ <- (apply(as.data.frame(eff_fit), 1, cumsum) - apply(as.data.frame(eff_early), 1, cumsum)) %>% 
+    apply(1, quantile, c(0.0, 0.025, 0.5, 0.975, 1)) %>% 
+    apply(1,function(x)x) %>% 
+    as.data.frame() %>% 
+    as_tibble(eff_fit) %>%
+    mutate(date = dates, type = "fit_early")
+
+  table_decrease_tot <- bind_rows(table_decrease_tot, 
+                               eff_fit_,
+                               eff_late_fit_, 
+                               eff_fit_early_)
+  
+names(table_decrease_tot) <- c("min", "q025", "median", "q975", "max", "date", "type")
+
+table_decrease_tot %>% 
+  filter(date == as.Date("2020-04-20")) %>% 
+  select(type, median, q025, q975) %>% write.csv(row.names = FALSE)
+```
