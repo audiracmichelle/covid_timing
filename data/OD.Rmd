@@ -1,0 +1,63 @@
+# OD
+
+* extract county shapefile
+
+```{python}
+url = 'https://www2.census.gov/geo/tiger/TIGER2020/COUNTY/tl_2020_us_county.zip'
+#import wget; wget.download(url, '/tmp')
+file_name = '/tmp/tl_2020_us_county.zip'
+#from zipfile import ZipFile; ZipFile(file_name, 'r').extractall('/tmp')
+import os; os.system("ls /tmp/")
+```
+
+* read shapefile
+
+```{r}
+library(sf)
+library(tidyverse)
+library(magrittr)
+
+county_sf = st_read("/tmp/tl_2020_us_county.shp")
+head(county_sf)
+
+county_sf %<>%
+  rename(county_fips = GEOID)
+county_fips_ <- county_sf$county_fips
+
+county_sp <-  as(county_sf, "Spatial")
+```
+
+* compute center of each county and OD matrix
+
+```{r}
+library(geosphere)
+
+OD = matrix(0, nrow=length(county_fips_), ncol=length(county_fips_))
+OD = as.data.frame(OD, row.names = county_fips_)
+names(OD) <- county_fips_
+
+n = length(county_fips_)
+#pbar = progress::progress_bar$new(total = n * (n + 1) %/% 2)
+for (i in 1:(n-1)) {
+  for (j in (i+1):n) {
+    x = county_sp@polygons[[i]]@Polygons[[1]]@labpt
+    y = county_sp@polygons[[j]]@Polygons[[1]]@labpt
+    OD[i, j] = distHaversine(p1 = x, p2 = y) / 
+      1000 / 1.60934 #km to miles
+    #pbar$tick()
+  }
+}
+
+#write_rds(OD, './OD.rds')
+OD <- read_rds('OD.rds')
+head(OD)
+```
+
+```{r}
+OD %<>%
+  rownames_to_column(var = "origin") %>% 
+  pivot_longer(-origin) %>% 
+  rename(destination = name) %>% 
+  filter(value > 0)
+```
+

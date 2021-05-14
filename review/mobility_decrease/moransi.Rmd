@@ -1,0 +1,539 @@
+# monrans_I
+
+```{r}
+#library(reticulate)
+#library(sf)
+library(tidyverse)
+#library(reshape2)
+#library(viridis)
+library(ape)
+library(gridExtra)
+```
+
+
+<!-- ```{python} -->
+<!-- #Download shapefile -->
+
+<!-- import wget -->
+<!-- from zipfile import ZipFile  -->
+
+<!-- url = 'https://www2.census.gov/geo/tiger/TIGER2020/COUNTY/tl_2020_us_county.zip' -->
+<!-- wget.download(url, '/tmp') -->
+<!-- file_name = '/tmp/tl_2020_us_county.zip' -->
+<!-- ZipFile(file_name, 'r').extractall('/tmp/tl_2020_us_county/') -->
+<!-- import os;os.listdir('/tmp/tl_2020_us_county') -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- gdf = st_read("/tmp/tl_2020_us_county/tl_2020_us_county.shp") -->
+<!-- ``` -->
+
+## Stay-home
+
+```{r}
+model = readRDS("../../models/mobility_decrease/model.rds")
+```
+
+```{r}
+#Load model residuals
+res = model$residuals;length(res)
+df = model$data;dim(df)
+
+res_df = tibble(
+  fips=df$fips,
+  res=res,
+  y=model$y,
+  res_rel=res/(y + res + 1e-8),
+  t=df$days_since_thresh
+)
+```
+
+<!-- ### Residual maps -->
+
+
+<!-- ```{r} -->
+<!-- usa <- st_as_sf(maps::map("state", fill=TRUE, plot =FALSE)) -->
+
+<!-- res_maps <- list() -->
+<!-- for(t_ in 7:22){ -->
+<!--   res_df_t = res_df %>%  -->
+<!--     filter(t == t_) -->
+
+<!--   q05 = quantile(res_df_t$res, .05) -->
+<!--   q95 = quantile(res_df_t$res, .95) -->
+
+<!--   gdf_res_at_t = gdf %>%  -->
+<!--     left_join(res_df_t, by=c("GEOID"="fips")) %>%  -->
+<!--     rename(residual=res) %>%  -->
+<!--     filter(!is.na(residual)) %>%  -->
+<!--     mutate(outliers = (residual < q05)|(residual > q95)) %>%  -->
+<!--     mutate(residual_= pmax(residual, q05),  -->
+<!--            residual_= pmin(residual, q95)) -->
+
+<!--   res_maps[[as.character(t_)]] <- ggplot() +  -->
+<!--     geom_sf(color = "#2b2b2b", fill = "white", size=0.125, data=usa) +  -->
+<!--     geom_sf(data=select(gdf_res_at_t, -t), aes(fill=residual_), size=0.125) +  -->
+<!--     geom_sf(data=filter(gdf_res_at_t, outliers), col="red", fill = NA, size=0.125) +  -->
+<!--     coord_sf(xlim=c(-125, -67)) + -->
+<!--     scale_fill_viridis() + -->
+<!--     labs(title=paste("days since threshold:", as.character(t_))) + -->
+<!--     theme_minimal() +  -->
+<!--     theme(panel.grid.major = element_blank(),  -->
+<!--           panel.grid.minor = element_blank(), -->
+<!--           panel.background = element_blank(), -->
+<!--           axis.text.x=element_blank(), -->
+<!--           axis.text.y=element_blank(), -->
+<!--           axis.ticks=element_blank(), -->
+<!--           axis.title.x=element_blank(), -->
+<!--           axis.title.y=element_blank()) -->
+<!-- } -->
+
+<!-- res_maps <- marrangeGrob(res_maps,  -->
+<!--                           nrow = 6, ncol = 2,  -->
+<!--                           left = "", top = "") -->
+
+<!-- ggsave('res_maps.pdf',res_maps, width = 15, height = 25, units = "cm") -->
+<!-- ``` -->
+
+<!-- * relative -->
+
+<!-- ```{r} -->
+<!-- usa <- st_as_sf(maps::map("state", fill=TRUE, plot =FALSE)) -->
+<!-- #st_crs(data) <- 4326 -->
+<!-- res_rel_maps <- list() -->
+<!-- for(t_ in 7:22){ -->
+<!--   res_df_t = res_df %>%  -->
+<!--     filter(t == t_) -->
+
+<!--   q05 = quantile(res_df_t$res_rel, .05) -->
+<!--   q95 = quantile(res_df_t$res_rel, .95) -->
+
+<!--   gdf_res_at_t = gdf %>%  -->
+<!--     left_join(res_df_t, by=c("GEOID"="fips")) %>%  -->
+<!--     filter(!is.na(res_rel)) %>%  -->
+<!--     mutate(outliers = (res_rel < q05)|(res_rel > q95)) %>%  -->
+<!--     mutate(res_rel_= pmax(res_rel, q05),  -->
+<!--            res_rel_= pmin(res_rel, q95)) -->
+
+<!--   res_rel_maps[[as.character(t_)]] <- ggplot() +  -->
+<!--     geom_sf(color = "#2b2b2b", fill = "white", size=0.125, data=usa) +  -->
+<!--     geom_sf(data=select(gdf_res_at_t, -t), aes(fill=res_rel_), size=0.125) +  -->
+<!--     geom_sf(data=filter(gdf_res_at_t, outliers), col="red", fill = NA, size=0.125) +  -->
+<!--     coord_sf(xlim=c(-125, -67)) + -->
+<!--     scale_fill_viridis() + -->
+<!--     labs(title=paste("days since threshold:", as.character(t_))) + -->
+<!--     theme_minimal() +  -->
+<!--     theme(panel.grid.major = element_blank(),  -->
+<!--           panel.grid.minor = element_blank(), -->
+<!--           panel.background = element_blank(), -->
+<!--           axis.text.x=element_blank(), -->
+<!--           axis.text.y=element_blank(), -->
+<!--           axis.ticks=element_blank(), -->
+<!--           axis.title.x=element_blank(), -->
+<!--           axis.title.y=element_blank()) -->
+<!-- } -->
+
+<!-- res_rel_maps <- marrangeGrob(res_rel_maps,  -->
+<!--                           nrow = 6, ncol = 2,  -->
+<!--                           left = "", top = "") -->
+
+<!-- ggsave('res_rel_maps.pdf',res_rel_maps, width = 15, height = 25, units = "cm") -->
+<!-- ``` -->
+
+### Residual plots
+
+```{r}
+res_plots <- list()
+for(t_ in 7:22) {
+  res_df_t = res_df %>% 
+  filter(t == t_)
+  
+  mn = mean(res_df_t$res)
+  lines = tibble(
+    v=c(quantile(res_df_t$res, .05), 
+        quantile(res_df_t$res, .95)),
+    type=c("5%", "95%"))
+  
+  res_plots[[as.character(t_)]] <- ggplot(res_df_t) + 
+    geom_histogram(aes(x=res), bins=60) + 
+    geom_vline(aes(xintercept=mn), color="blue") +
+    geom_vline(data=lines, aes(xintercept=v, lty=type), color="red") +
+    theme_bw() +
+    labs(title=sprintf("Residuals for epidemic time %d", t_),
+         color="")
+}
+
+res_plots <- marrangeGrob(res_plots, 
+                          nrow = 8, ncol = 2, 
+                          left = "", top = "")
+
+ggsave('res_plots.pdf',res_plots, width = 15, height = 25, units = "cm")
+```
+
+* relative 
+
+```{r}
+res_rel_plots <- list()
+for(t_ in 7:22) {
+  res_df_t = res_df %>% 
+  filter(t == t_)
+  
+  mn = mean(res_df_t$res_rel)
+  lines = tibble(
+    v=c(quantile(res_df_t$res_rel, .05), 
+        quantile(res_df_t$res_rel, .95)),
+    type=c("5%", "95%"))
+  
+  res_rel_plots[[as.character(t_)]] <- ggplot(res_df_t) + 
+    geom_histogram(aes(x=res_rel), bins=60) + 
+    geom_vline(aes(xintercept=mn), color="blue") +
+    geom_vline(data=lines, aes(xintercept=v, lty=type), color="red") +
+    theme_bw() +
+    labs(title=sprintf("Residuals for epidemic time %d", t_),
+         color="")
+}
+
+res_rel_plots <- marrangeGrob(res_rel_plots, 
+                          nrow = 8, ncol = 2, 
+                          left = "", top = "")
+
+ggsave('res_rel_plots.pdf',res_rel_plots, width = 15, height = 25, units = "cm")
+```
+
+### Residual tables
+
+```{r}
+res_tables <- list()
+for(t_ in 7:22) {
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  
+  q25 = quantile(res_df_t$res, .025)
+  
+  res_tables[[as.character(t_)]] <- res_df_t %>%
+    filter(res<q25) %>% 
+    left_join(df %>% 
+                distinct(fips, county, state, pop)) %>% 
+     arrange(desc(res))
+}
+bind_rows(res_tables)
+```
+
+```{r}
+res_tables <- list()
+for(t_ in 7:22) {
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  
+  q975 = quantile(res_df_t$res, .975)
+  
+  res_tables[[as.character(t_)]] <- res_df_t %>%
+    filter(res>q975) %>% 
+    left_join(df %>% 
+                distinct(fips, county, state, pop)) %>% 
+     arrange(desc(res))
+}
+bind_rows(res_tables)
+```
+
+* relative
+
+```{r}
+res_rel_tables <- list()
+for(t_ in 7:22) {
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  
+  q025 = quantile(res_df_t$res_rel, .025)
+  
+  res_rel_tables[[as.character(t_)]] <- res_df_t %>%
+    filter(res_rel<q025) %>% 
+    left_join(df %>% 
+                distinct(fips, county, state, pop)) %>% 
+     arrange(desc(res_rel))
+}
+bind_rows(res_rel_tables)
+```
+
+```{r}
+res_rel_tables <- list()
+for(t_ in 7:22) {
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  
+  q975 = quantile(res_df_t$res_rel, .975)
+  
+  res_rel_tables[[as.character(t_)]] <- res_df_t %>%
+    filter(res_rel>q975) %>% 
+    left_join(df %>% 
+                distinct(fips, county, state, pop)) %>% 
+     arrange(desc(res_rel))
+}
+bind_rows(res_rel_tables)
+```
+
+## Load OD and adjacency
+
+```{r}
+# Load OD
+
+distmat_raw = read_rds("../../data/OD.rds")
+distmat_raw = distmat_raw + t(distmat_raw)
+# distmat = distmat_raw %>%
+#   rownames_to_column() %>% 
+#   pivot_longer(-rowname) %>%
+#   `names<-`(c("src", "tgt", "dist")) %>% 
+#   mutate(weight=ifelse(src != tgt, 1 / dist, 0))
+```
+
+```{r}
+# Load adjacency
+adjacency = read_csv("../../data/adjacency_fips.csv")
+```
+
+## Moran's I
+
+* distance
+
+```{r}
+#summary(res_df$t)
+moransI_list <- list()  
+for(t_ in 7:22)
+{
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  x = res_df_t$res
+    #q05 = quantile(res_df_t$res, .05)
+  insample = x > -Inf
+  x = x[insample]
+  fips = res_df_t$fips[insample]
+  wts = 1 / distmat_raw[fips, fips]
+  diag(wts) = 0
+
+  # From package
+  moransI_list[[t_]] <- as.data.frame(Moran.I(x, wts, scaled=TRUE))  # from package
+  moransI_list[[t_]]$t = t_
+}
+moransI = bind_rows(moransI_list)
+
+moransI %>% 
+  pivot_longer(-t) %>% 
+  ggplot() + 
+  geom_line(aes(x=t, y=value)) +
+  facet_wrap(~name, scales = "free", ncol=1)
+```
+
+* distance relative
+
+```{r}
+#summary(res_df$t)
+moransI_list <- list()  
+for(t_ in 7:22)
+{
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  x = res_df_t$res_rel
+
+  insample = x > -Inf #q05 = quantile(res_df_t$res, .05)
+  x = x[insample]
+  fips = res_df_t$fips[insample]
+  wts = 1 / distmat_raw[fips, fips]
+  diag(wts) = 0
+
+  # From package
+  moransI_list[[t_]] <- as.data.frame(Moran.I(x, wts, scaled=TRUE))  # from package
+  moransI_list[[t_]]$t = t_
+}
+moransI = bind_rows(moransI_list)
+
+moransI %>% 
+  pivot_longer(-t) %>% 
+  ggplot() + 
+  geom_line(aes(x=t, y=value)) +
+  facet_wrap(~name, scales = "free", ncol=1)
+```
+
+* adjacency
+
+```{r}
+#summary(res_df$t)
+moransI_list <- list()  
+for(t_ in 7:22)
+{
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  x = res_df_t$res
+    
+  insample = x > -Inf #q05 = quantile(res_df_t$res, .05)
+  x = x[insample]
+  fips = res_df_t$fips[insample]
+  
+  wts = matrix(0, length(fips), length(fips), dimnames = list(fips, fips))
+  adj_t = adjacency %>% 
+    filter(src_lab %in% fips, tgt_lab %in% fips)
+  num_edges = nrow(adj_t)
+  for(i in 1:num_edges) {
+    s = adj_t$src_lab[i]
+    t = adj_t$tgt_lab[i]
+    wts[s, t] = wts[t, s] = 1
+  }
+
+  # From package
+  moransI_list[[t_]] <- as.data.frame(Moran.I(x, wts, scaled=TRUE))  # from package
+  moransI_list[[t_]]$t = t_
+}
+moransI = bind_rows(moransI_list)
+
+moransI %>% 
+  pivot_longer(-t) %>% 
+  ggplot() + 
+  geom_line(aes(x=t, y=value)) +
+  facet_wrap(~name, scales = "free", ncol=1)
+```
+
+* adjacency relative
+
+```{r}
+#summary(res_df$t)
+moransI_list <- list()  
+for(t_ in 7:22)
+{
+  res_df_t = res_df %>% 
+    filter(t == t_)
+  x = res_df_t$res_rel
+    
+  insample = x > -Inf #q05 = quantile(res_df_t$res, .05)
+  x = x[insample]
+  fips = res_df_t$fips[insample]
+  
+  wts = matrix(0, length(fips), length(fips), dimnames = list(fips, fips))
+  adj_t = adjacency %>% 
+    filter(src_lab %in% fips, tgt_lab %in% fips)
+  num_edges = nrow(adj_t)
+  for(i in 1:num_edges) {
+    s = adj_t$src_lab[i]
+    t = adj_t$tgt_lab[i]
+    wts[s, t] = wts[t, s] = 1
+  }
+
+  # From package
+  moransI_list[[t_]] <- as.data.frame(Moran.I(x, wts, scaled=TRUE))  # from package
+  moransI_list[[t_]]$t = t_
+}
+moransI = bind_rows(moransI_list)
+
+moransI %>% 
+  pivot_longer(-t) %>% 
+  ggplot() + 
+  geom_line(aes(x=t, y=value)) +
+  facet_wrap(~name, scales = "free", ncol=1)
+
+```
+
+<!-- # Manual computation of Moran's I -->
+<!-- c_t = mean(x) -->
+<!-- x_c = x - c_t -->
+<!-- ss_tot = sum(x_c * x_c) -->
+<!-- covmat = wts * (x_c %*% t(x_c)) -->
+<!-- N = length(x) -->
+<!-- W = sum(wts) -->
+<!-- moran_mat = N / W * covmat / ss_tot -->
+<!-- moran_I = sum(moran_mat) -->
+<!-- print(sprintf("Moran's I manual computation: %.3f", moran_I)) -->
+
+<!-- ```{r} -->
+<!-- local_moran = N * apply(moran_mat, 2, sum) -->
+<!-- ggplot() + -->
+<!--   geom_histogram(aes(x=local_moran)) + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Row (location) contributions to Moran's I", -->
+<!--     x="" -->
+<!--   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- local_moran_df = tibble( -->
+<!--   moran=local_moran, -->
+<!--   fips=fips -->
+<!-- ) -->
+
+<!-- gdf_moran_at_t = gdf %>%  -->
+<!--   left_join(local_moran_df, by=c("GEOID"="fips")) %>%  -->
+<!--   filter(!is.na(moran)) -->
+
+<!-- ggplot() + -->
+<!--   geom_sf(color = "#2b2b2b", fill = "white", size=0.125, data=usa) +  -->
+<!--   geom_sf(data=gdf_moran_at_t, aes(fill=moran), size=0.0) + -->
+<!--   # geom_sf(data=filter(gdf_res_at_t, outlier_lower_tail), fill="red") + -->
+<!--   coord_sf(xlim=c(-125, -67)) + -->
+<!--   scale_fill_viridis() + -->
+<!--   labs( -->
+<!--     title="Geographic distribution of Local Correlation" -->
+<!--   ) + -->
+<!--   theme_minimal() + -->
+<!--   theme(panel.grid.major = element_blank()) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- # With the exclusion of bottom 5% there is (almost) no spatial correlation. -->
+<!-- # residuals and weights -->
+<!-- x = res_df_t$res -->
+<!-- insample = x > quantile(x, .05) -->
+<!-- print(sprintf("excluding bottom 5%% (%d/420)", sum(!insample))) -->
+<!-- x = x[insample] -->
+<!-- fips = res_df_t$fips[insample] -->
+<!-- wts = 1 / distmat_raw[fips, fips] -->
+<!-- diag(wts) = 0 -->
+
+<!-- # manual computation of Moran's I -->
+<!-- c_t = mean(x) -->
+<!-- x_c = x - c_t -->
+<!-- ss_tot = sum(x_c * x_c) -->
+<!-- covmat = wts * (x_c %*% t(x_c)) -->
+<!-- N = length(x) -->
+<!-- W = sum(wts) -->
+<!-- moran_mat = N / W * covmat / ss_tot -->
+<!-- moran_I = sum(moran_mat) -->
+<!-- print(sprintf("Moran's I manual computation: %.3f", moran_I)) -->
+
+<!-- # From package -->
+<!-- Moran.I(x, wts, scaled=TRUE)  # from package -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- local_moran = N * apply(moran_mat, 2, sum) -->
+<!-- ggplot() + -->
+<!--   geom_histogram(aes(x=local_moran)) + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Row (location) contributions to Moran's I", -->
+<!--     subtitle="Lower 5% tail excluded from Moran's I computation", -->
+<!--     x="" -->
+<!--   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- local_moran_df = tibble( -->
+<!--   moran=local_moran, -->
+<!--   fips=fips -->
+<!-- ) -->
+
+<!-- gdf_moran_at_t = gdf %>%  -->
+<!--   left_join(local_moran_df, by=c("GEOID"="fips")) %>%  -->
+<!--   filter(!is.na(moran)) -->
+
+<!-- ggplot() + -->
+<!--   geom_sf(color = "#2b2b2b", fill = "white", size=0.125, data=usa) +  -->
+<!--   geom_sf(data=gdf_moran_at_t, aes(fill=moran), size=0.0) + -->
+<!--   # geom_sf(data=filter(gdf_res_at_t, outlier_lower_tail), fill="red") + -->
+<!--   coord_sf(xlim=c(-125, -77)) + -->
+<!--   scale_fill_viridis() + -->
+<!--   labs( -->
+<!--     title="Geographic distribution of Local Correlation", -->
+<!--     subtitle="Lower 5% tail shown in red" -->
+<!--   ) + -->
+<!--   theme_minimal() + -->
+<!--   theme(panel.grid.major = element_blank()) -->
+<!-- ``` -->
