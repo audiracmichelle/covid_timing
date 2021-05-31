@@ -1,10 +1,12 @@
 **/res_maps.pdf
 **/res_rel_maps.pdf
 
+**/*.err
+**/*.out
 .DS_Store
 
-fit_decrease/**/*.rds
-fit_stayhome/**/*.rds
+fit/**/*.rds
+fit/**/*.rds
 
 # History files
 .Rhistory

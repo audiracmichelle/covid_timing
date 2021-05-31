@@ -2,10 +2,11 @@ library(tidyverse)
 library(rstan)
 library(abind)
 library(reticulate)
+library(igraph)
+
 np = import("numpy")
 scipy_stats = import("scipy.stats")
 nbinom = scipy_stats$nbinom
-
 
 
 stan_input_data = function(
@@ -70,7 +71,7 @@ stan_input_data = function(
   if (type[1] == "stayhome") {
     days_since_intrv = county_train$days_since_intrv_stayhome
     days_btwn = county_train$days_btwn_stayhome_thresh
-  } else {
+  } else if (type[1] == "decrease") {
     days_since_intrv = county_train$days_since_intrv_decrease
     days_btwn = county_train$days_btwn_decrease_thresh
   }
@@ -215,12 +216,11 @@ stan_input_data = function(
   output
 }
 
-
+# posterior predicts outputs the predicted deaths
 posterior_predict = function (
   fit,
   model_data,
-  eval_pre = TRUE,
-  states=FALSE,
+  states=TRUE,  # if uses tate random effects
   spatial=FALSE,
   rand_lag=FALSE,
   temporal=FALSE,
@@ -288,7 +288,8 @@ posterior_predict = function (
   pre_term_prev = pars$log_rate_pre_interv
   size_prev = ncol(pre_term_prev)
   size_new = nrow(new_df)
-  eval_pre = eval_pre || (size_prev != size_new)
+
+  eval_pre = shift_timing != 0
 
   if (eval_pre) {
     X_pre = new_data$X_pre
@@ -364,11 +365,11 @@ posterior_predict = function (
   nbinom_samples = as.array(nbinom$rvs(overdisp, 1 - p))
   #
   list(
-    yhat=rate,
+    # yhat=rate,
     log_yhat=log_rate,
-    log_yhat_no_rand_eff=log_rate - rand_eff_term,
-    yhat_no_rand_eff=exp(log_rate - rand_eff_term),
-    rand_eff_term=rand_eff_term,
+    # log_yhat_no_rand_eff=log_rate - rand_eff_term,
+    # yhat_no_rand_eff=exp(log_rate - rand_eff_term),
+    rand_eff=rand_eff_term,
     pre_term=pre_term,
     post_term=post_term,
     y_samples=nbinom_samples

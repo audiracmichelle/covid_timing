@@ -1,0 +1,6 @@
+Rscript --vanilla stayhome_3_cable_bent.R
+Rscript --vanilla stayhome_7_states.R
+Rscript --vanilla stayhome_12_cable_bent_ar1.R
+Rscript --vanilla decrease_3_cable_bent.R
+Rscript --vanilla decrease_7_states.R
+Rscript --vanilla decrease_12_cable_bent_ar1.R
