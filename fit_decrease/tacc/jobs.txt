@@ -1,0 +1,3 @@
+Rscript --vanilla 3_cable_bent.R
+Rscript --vanilla 3_7_states.R
+Rscript --vanilla 3_cable_bent.R

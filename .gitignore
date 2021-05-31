@@ -3,6 +3,9 @@
 
 .DS_Store
 
+fit_decrease/**/*.rds
+fit_stayhome/**/*.rds
+
 # History files
 .Rhistory
 .Rapp.history
