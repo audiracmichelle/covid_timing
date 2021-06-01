@@ -25,22 +25,7 @@ length(unique(county_train$fips))
 
 model_data = stan_input_data(county_train, type="decrease", lag=0, use_mask=exclude_ny)
 model = rstan::stan_model("../stan_models/12b_cable_bent_ar1_concave.stan")
-print(paste("Compiled model:", "12b_cable_bent_ar1_concave"))
-
-# first run with variational inference,
-# it should take ~ 15 mins for default tol (0.01) and ~40min for 50k iters
-fit = rstan::vb(
-  model, 
-  data=model_data,
-  adapt_engaged=FALSE,
-  eta = 0.25,
-  iter=50000,
-  tol_rel_obj=0.001,
-  adapt_iter=250,
-  init="0",
-  output_samples=250
-)
-
+print(paste("Compiled model:", "decrease/12b_cable_bent_ar1_concave"))
 
 parnames = c(
   "nchs_pre", "nchs_post", "beta_covars_pre",
@@ -49,10 +34,26 @@ parnames = c(
   "overdisp",
   "rand_eff_lin", "state_eff_lin",
   "rand_eff_quad", "state_eff_quad",
+  "state_eff", "rand_eff",
   "Omega_rand_eff", "Omega_state_eff",
   "scale_state_eff", "scale_rand_eff",
   "duration_unc", "lag_unc", "autocor_unc", "time_term"
 )
+
+fit = rstan::vb(
+  model, 
+  data=model_data,
+  adapt_engaged=FALSE,
+  eta = 0.25,
+  iter=50000,
+  tol_rel_obj=0.003,
+  adapt_iter=250,
+  pars=parnames,
+  init="0",
+  output_samples=250
+)
+
+
 # par
 pars = rstan::extract(fit, pars=parnames)
 
@@ -82,10 +83,14 @@ fit2 = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
-  iter=1500,
-  warmup=1250,
+  iter=2500,
+  warmup=2000,
+  save_warmup=FALSE,
+  pars=parnames,
+  thin=10
   init=init_lists
 )
+
 saveRDS(fit2, "decrease_fitted/12_cable_bent_ar1_mcmc.rds")
 
 # revised_0 uses the joint dataset

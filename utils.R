@@ -240,8 +240,7 @@ posterior_predict = function (
     "baseline_post",
     "overdisp",
     "rand_eff",
-    "scale_rand_eff",
-    "log_rate_pre_interv"
+    "scale_rand_eff"
   )
   if (spatial)
     parnames = c(parnames, "spatial_eff")
@@ -284,31 +283,20 @@ posterior_predict = function (
     np$multiply(tpoly_pre, rand_eff_unrolled), -1L
   )
   
-  # eval compatibility of pre_term
-  pre_term_prev = pars$log_rate_pre_interv
-  size_prev = ncol(pre_term_prev)
-  size_new = nrow(new_df)
+  X_pre = new_data$X_pre
+  X_pre = np$expand_dims(X_pre, 0L)
+  X_pre = np$expand_dims(X_pre, 3L)    
+  beta_covars_pre = np$expand_dims(np$array(pars$beta_covars_pre), 1L)
+  covar_baseline_pre = np$sum(np$multiply(X_pre, beta_covars_pre), -2L)
+  nchs_pre_unrolled = np$array(pars$nchs_pre[ ,new_data$nchs_id, ])
+  baseline_pre = np$expand_dims(pars$baseline_pre, 1L)
+  pre_term = np$add(np$add(baseline_pre, nchs_pre_unrolled), covar_baseline_pre)
+  pre_term = np$sum(np$multiply(pre_term, tpoly_pre), -1L)
+  offset_ = t(matrix(rep(new_data$offset, times=nsamples), ncol=nsamples))
+  pre_term = pre_term + rand_eff_term + offset_
+  if (temporal)
+    pre_term = pre_term + np$array(pars$time_term)
 
-  eval_pre = shift_timing != 0
-
-  if (eval_pre) {
-    X_pre = new_data$X_pre
-    X_pre = np$expand_dims(X_pre, 0L)
-    X_pre = np$expand_dims(X_pre, 3L)    
-    beta_covars_pre = np$expand_dims(np$array(pars$beta_covars_pre), 1L)
-    covar_baseline_pre = np$sum(np$multiply(X_pre, beta_covars_pre), -2L)
-    nchs_pre_unrolled = np$array(pars$nchs_pre[ ,new_data$nchs_id, ])
-    baseline_pre = np$expand_dims(pars$baseline_pre, 1L)
-    pre_term = np$add(np$add(baseline_pre, nchs_pre_unrolled), covar_baseline_pre)
-    pre_term = np$sum(np$multiply(pre_term, tpoly_pre), -1L)
-    offset_ = t(matrix(rep(new_data$offset, times=nsamples), ncol=nsamples))
-    pre_term = pre_term + rand_eff_term + offset_
-    if (temporal)
-      pre_term = pre_term + np$array(pars$time_term)
-  } else {
-    pre_term = np$array(pars$log_rate_pre_interv)
-  }
-  
   if (temporal)
     pre_term = pre_term + np$array(pars$time_term)
 

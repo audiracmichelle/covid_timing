@@ -24,22 +24,7 @@ length(unique(county_train$fips))
 model_data = stan_input_data(county_train, type="stayhome", lag=14)
 
 model = rstan::stan_model("../stan_models/7b_states_concave.stan")
-print(paste("Compiled model:", "7b_states_concave"))
-
-# first run with variational inference,
-# it should take ~ 15 mins for default tol (0.01) and ~40min for 50k iters
-fit = rstan::vb(
-  model, 
-  data=model_data,
-  adapt_engaged=FALSE,
-  eta = 0.25,
-  iter=15000,
-  tol_rel_obj=0.003,
-  adapt_iter=250,
-  init="0",
-  output_samples=250
-)
-saveRDS(fit, "stayhome_fitted/7_states.rds")
+print(paste("Compiled model:", "stayhome/7b_states_concave"))
 
 
 parnames = c(
@@ -49,9 +34,26 @@ parnames = c(
   "overdisp",
   "rand_eff_lin", "state_eff_lin",
   "rand_eff_quad", "state_eff_quad",
+  "state_eff", "rand_eff",
   "Omega_rand_eff", "Omega_state_eff",
   "scale_state_eff", "scale_rand_eff"
 )
+
+fit = rstan::vb(
+  model, 
+  data=model_data,
+  adapt_engaged=FALSE,
+  eta = 0.25,
+  iter=15000,
+  tol_rel_obj=0.003,
+  adapt_iter=250,
+  pars=parnames,
+  init="0",
+  output_samples=250
+)
+saveRDS(fit, "stayhome_fitted/7_states.rds")
+
+
 pars = rstan::extract(fit, pars=parnames)
 
 # create list of parameter inialization=
@@ -78,11 +80,14 @@ fit2 = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
-  iter=2000,
-  warmup=1750,
+  iter=5000,
+  warmup=4000,
+  save_warmup=FALSE,
+  pars=parnames,
+  thin=10
   init=init_lists
-
 )
+
 saveRDS(fit2, "stayhome_fitted/7_states_mcmc.rds")
 
 # revised_2 uses the joint dataset with min cum deahts >= 1

@@ -16,7 +16,7 @@ county_train <- read_feather("../data/county_train_.feather") %>%   # 1454 count
     max(days_since_thresh) >= 7,  # min data points, 909 counties
     max(cum_deaths) >= 1 # there as an outbreak, 400 counties
   ) %>%
-  mutate(mask = !((state == "New York") & (days_since_intrv_stayhome >= 12))) %>%
+  # mutate(mask = !((state == "New York") & (days_since_intrv_stayhome >= 12))) %>%
   ungroup()
 length(unique(county_train$fips))
 
@@ -24,22 +24,7 @@ length(unique(county_train$fips))
 model_data = stan_input_data(county_train, type="stayhome", lag=0)
 
 model = rstan::stan_model("../stan_models/3b_cable_bent_concave.stan")
-print(paste("Compiled model:", "3b_cable_bent_concave"))
-
-# first run with variational inference,
-# it should take ~ 15 mins for default tol (0.01) and ~40min for 50k iters
-fit = rstan::vb(
-  model, 
-  data=model_data,
-  adapt_engaged=FALSE,
-  eta = 0.25,
-  iter=15000,
-  tol_rel_obj=0.003,
-  adapt_iter=250,
-  init="0",
-  output_samples=250
-)
-saveRDS(fit, "stayhome_fitted/cable_bent.rds")
+print(paste("Compiled model:", "stayhome/3b_cable_bent_concave"))
 
 
 parnames = c(
@@ -49,10 +34,28 @@ parnames = c(
   "overdisp",
   "rand_eff_lin", "state_eff_lin",
   "rand_eff_quad", "state_eff_quad",
+  "rand_eff", "state_eff",
   "Omega_rand_eff", "Omega_state_eff",
   "scale_state_eff", "scale_rand_eff",
   "duration_unc", "lag_unc"
 )
+
+
+fit = rstan::vb(
+  model, 
+  data=model_data,
+  adapt_engaged=FALSE,
+  eta = 0.25,
+  pars=parnames,
+  iter=15000,
+  tol_rel_obj=0.003,
+  adapt_iter=250,
+  init="0",
+  output_samples=250
+)
+saveRDS(fit, "stayhome_fitted/cable_bent.rds")
+
+
 pars = rstan::extract(fit, pars=parnames)
 
 # create list of parameter inialization=
@@ -80,10 +83,14 @@ fit2 = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
-  iter=2000,
-  warmup=1750,
+  iter=5000,
+  warmup=4000,
+  save_warmup=FALSE,
+  pars=parnames,
+  thin=10
   init=init_lists
 )
+
 
 # revised_0 uses the joint dataset
 # saveRDS(fit, paste("./model_full_rstan_var_revised_0.rds", sep = ""))

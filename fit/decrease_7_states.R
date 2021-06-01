@@ -24,7 +24,20 @@ length(unique(county_train$fips))
 model_data = stan_input_data(county_train, type="decrease", lag=14)
 
 model = rstan::stan_model("../stan_models/7b_states_concave.stan")
-print(paste("Compiled model:", "7b_states_concave"))
+
+parnames = c(
+  "nchs_pre", "nchs_post", "beta_covars_pre",
+  "beta_covars_post", "beta_covars_post",
+  "baseline_pre", "baseline_post",
+  "overdisp",
+  "rand_eff_lin", "state_eff_lin",
+  "rand_eff_quad", "state_eff_quad",
+  "rand_eff", "state_eff",
+  "Omega_rand_eff", "Omega_state_eff",
+  "scale_state_eff", "scale_rand_eff"
+)
+
+print(paste("Compiled model:", "decrease/7b_states_concave"))
 # first run with variational inference,
 # it should take ~ 15 mins for default tol (0.01) and ~40min for 50k iters
 fit = rstan::vb(
@@ -35,22 +48,14 @@ fit = rstan::vb(
   iter=15000,
   tol_rel_obj=0.003,
   adapt_iter=250,
+  pars=parnames,
   init="0",
   output_samples=250
 )
 saveRDS(fit, "decrease_fitted/7_states.rds")
 
 
-parnames = c(
-  "nchs_pre", "nchs_post", "beta_covars_pre",
-  "beta_covars_post", "beta_covars_post",
-  "baseline_pre", "baseline_post",
-  "overdisp",
-  "rand_eff_lin", "state_eff_lin",
-  "rand_eff_quad", "state_eff_quad",
-  "Omega_rand_eff", "Omega_state_eff",
-  "scale_state_eff", "scale_rand_eff"
-)
+
 pars = rstan::extract(fit, pars=parnames)
 
 # create list of parameter inialization=
@@ -77,11 +82,14 @@ fit2 = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
-  iter=2000,
-  warmup=1750,
+  iter=5000,
+  warmup=4000,
+  save_warmup=FALSE,
+  pars=parnames,
+  thin=10
   init=init_lists
-
 )
+
 saveRDS(fit2, "decrease_fitted/7_states_mcmc.rds")
 
 
@@ -105,7 +113,7 @@ saveRDS(fit2, "decrease_fitted/7_states_mcmc.rds")
 #### #### 
 ## county_fit
 
-# county_fit <- model 
+# county_fit <- model
 #   posterior_predict(county_train, draws = 500)
 # county_fit_var = rstan::extract(fit, pars="y_new")$y_new[-(1:500), ]
 
@@ -120,18 +128,20 @@ saveRDS(fit2, "decrease_fitted/7_states_mcmc.rds")
 
 # let's validate for some location and then call it a day
 # it's working !
-# county_lp_var = exp(rstan::extract(fit, pars="log_rate")$log_rate)
-# # f1 = "06037"  #L.A
+# county_lp_var = exp(rstan::extract(fit2, pars="log_rate")$log_rate)
+# f1 = "06037"  #L.A
+# predicted = posterior_predict(fit, model_data)
+# county_lp_var = exp(predicted$log_yhat)
 # f1 = "36081"  # queens NY
 # # f1 = "53033"  # king county WA
 # ix = which(county_train$fips == f1)
-
+# 
 # yi = county_train$y[ix]
 # yhati = apply(county_lp_var[ ,ix], 2, median)
 # yhati_95 = apply(county_lp_var[ ,ix], 2, quantile, .95)
 # yhati_05 = apply(county_lp_var[ ,ix], 2, quantile, .05)
-
-# # ymeani = apply(county_fit_var[ ,ix], 2, mean)
+# 
+# # # ymeani = apply(county_fit_var[ ,ix], 2, mean)
 # plot(yi)
 # lines(yhati, col="red")
 # lines(yhati_95, col="blue", lty=2)
@@ -141,15 +151,17 @@ saveRDS(fit2, "decrease_fitted/7_states_mcmc.rds")
 # dbtwn = dbtwn$days_since_thresh[1]
 # abline(v=dbtwn + 12, lty=3, col="gray")
 # title(sprintf("FIPS %s", f1))
-# # 
+
+
+# #
 # # county_eval <- read_feather("../../county_train_.feather") %>%   # 1454 counties
 # #   filter(date <= ymd("20200420")) %>%   # 1021 counties
 # #   group_by(fips) %>%
 # #   filter(
 # #     max(days_since_thresh) >=a 7,  # min data points, 909 counties
 # #     max(cum_deaths) >= 1 # there as an outbreak, 400 counties
-# #   ) %>%  
-# #   ungroup() %>% 
+# #   ) %>%
+# #   ungroup() %>%
 # #   filter(fips %in% unique(county_train$fips))
 # county_eval = county_train
 
@@ -164,7 +176,7 @@ saveRDS(fit2, "decrease_fitted/7_states_mcmc.rds")
 #   # intervention_effect=post_term,
 #   predicted=exp(log_yhat),
 #   date=county_eval$date[ix]
-# ) %>% 
+# ) %>%
 #   pivot_longer(-date)
 
 # plotdata2 = tibble(
