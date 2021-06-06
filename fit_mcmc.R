@@ -16,22 +16,20 @@ parser$add_argument("--intervention", type="character",
     help="intervention_type"
 )
 parser$add_argument("--exclude_ny", action="store_true", default=FALSE,
-    help="Exclude the five counties from NY city")
-parser$add_argument("--exclude_post_only", action="store_true", default=FALSE,
-    help="Exclude the five counties from NY only after intervention time")
+    help="Exclude the five counties from NY")
 parser$add_argument("--lag", type="double", default=14.0, 
     help="Lag to use (time from infection to death).")
 parser$add_argument("--dir", type="character", default="", 
     help="Folder where to save output model.")
-parser$add_argument("--no_spatial", action="store_false", default=TRUE, dest="spatial",
+parser$add_argument("--spatial", action="store_true", default=TRUE,
     help="Adds an intrinsic spatial ICAR term")
-parser$add_argument("--no_temporal", action="store_false", default=TRUE, dest="temporal",
+parser$add_argument("--temporal", action="store_true", default=TRUE,
     help="Adds am intrinsic tempoeral autoregressive term. The autocorrelation is set by --autocor")
 parser$add_argument("--autocor", type="double", default=0.8, 
     help="Autocorrelation for intrinsic term. If autocor=1.0 it uses a random walk.")
-parser$add_argument("--no_post_inter", action="store_false", default=TRUE, dest="use_post_inter",
+parser$add_argument("--use_post_inter", action="store_true", default=TRUE,
     help="Use interaction variables for post-trend")
-parser$add_argument("--no_pre_inter", action="store_false", default=TRUE, dest="use_pre_inter",
+parser$add_argument("--use_pre_inter", action="store_true", default=TRUE,
     help="Use interaction variables for pre-trend")
 parser$add_argument("--pre_vars", type="character",
     default="college age_65_plus black hispanic popdensity",
@@ -45,12 +43,14 @@ parser$add_argument("--post_vars", type="character",
 parser$add_argument("--post_inter_vars", type="character",
     default="",
     help="Control variables for the post-trend that interact with NCHS. The timing (days between intervention and threshold) is always added to the list.")
-parser$add_argument("--iter", type="double", default=100000, 
-    help="Max number of iterations for stan variational algorithm")
-parser$add_argument("--samples", type="integer", default=250, 
-    help="Number of sample samples for rstan vb algorithm")
-parser$add_argument("--rel_tol", type="double", default=0.001, 
-    help="Relative tolerance for rstan vb algorithm")
+parser$add_argument("--nchains", type="integer", default=4, 
+    help="Number of chains")
+parser$add_argument("--thin", type="integer", default=12, 
+    help="Thinning. Adjust to with chains and iters to more less end up with 1000 samples. (More will break memory in analysis.)")
+parser$add_argument("--iter", type="integer", default=3500, 
+    help="Number of iterations for the chain")
+parser$add_argument("--warmup", type="integer", default=500, 
+    help="Weramup iterations for MCMC Use a larger number for cold starts.")
 
 args = parser$parse_args()
 for (i in 1:length(args)) {
@@ -85,8 +85,10 @@ county_train <- read_feather("data/county_train_.feather") %>%   # 1454 counties
   ) %>%
   mutate(interv_type = .env$intervention) %>%
   mutate(days_since_intrv = if_else(interv_type == "decrease", days_since_intrv_decrease, days_since_intrv_stayhome)) %>%
+  mutate(mask = !((fips %in% ny_counties) & (days_since_intrv > lag))) %>%
   ungroup()
 valid_fips = unique(county_train$fips)
+
 
 if (exclude_ny) {
     if (exclude_post_only) {
@@ -96,7 +98,6 @@ if (exclude_ny) {
     }
 }
 
-  mutate(mask = !((fips %in% ny_counties) & (days_since_intrv > lag))) %>%
 edges = read_csv("data/fips_adjacency.csv") %>% 
   # filter(isnbr) %>%
   filter(dist <= 200) %>%
@@ -120,7 +121,22 @@ saveRDS(model_data, paste0(dir, "./model_data.rds"))
 
 model = rstan::stan_model("stan_models/1_spatiotemporal.stan")
 
-# parameters form the model to save samples from
+# pre-fitting the variational model should take ~ 1h to convergence
+fit_vb = rstan::vb(
+  model, 
+  data=model_data,
+  adapt_engaged=FALSE,
+  eta = 0.25,
+  iter=100,
+  tol_rel_obj=0.001,
+  adapt_iter=250,
+  init="0",
+  pars=pars,
+  output_samples=250
+)
+saveRDS(fit_vb, paste0(dir, "./fit_variational.rds"))
+
+
 pars = c(
   "nchs_pre",
   "nchs_post",
@@ -145,17 +161,37 @@ pars = c(
   "ar_scale"
 )
 
+pars = rstan::extract(fit_vb, pars=pars)
 
-# pre-fitting the variational model should take ~ 1h to convergence
-fit_vb = rstan::vb(
-  model, 
+# create list of parameters sampling the variational distribution to
+# initialize the mcmc chains
+nchains = 4
+init_lists = map(1:nchains, function(i) {
+  map(pars, function(par) {
+    if (length(dim(par))==1)
+      return (par[i])
+    if (length(dim(par))==2)
+      return (par[i, ])
+    if (length(dim(par))==3)
+      return (par[i, , ])
+    print("error")
+  })
+})
+
+# annoying but must do below bacause R indexing kills a dimension (drop=TRUE not helping) when D_post has dimension 1
+for (i in 1:nchains) {
+  init_lists[[i]]$beta_covars_post = matrix(init_lists[[i]]$beta_covars_post, nrow=model_data$D_post)
+  init_lists[[i]]$beta_covars_post_inter = matrix(init_lists[[i]]$beta_covars_post, nrow=model_data$D_post_inter)
+}
+
+# the mcmc model should take 45 hours for 3000 iterations
+fit_mcmc = rstan::sampling(
+  model,
   data=model_data,
-  adapt_engaged=FALSE,
-  eta = 0.25,
-  iter=iter,
-  tol_rel_obj=tol,
-  init="0",
-  pars=pars,
-  output_samples=samples
+  chains=nchains,
+  iter=10,
+  warmup=9,
+  init=init_lists
+
 )
-saveRDS(fit_vb, paste0(dir, "./fit.rds"))
+saveRDS(fit_mcmc, paste0(dir, "./fit_mcmc.rds"))
