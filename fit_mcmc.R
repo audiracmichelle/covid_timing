@@ -51,6 +51,8 @@ parser$add_argument("--iter", type="integer", default=3500,
     help="Number of iterations for the chain")
 parser$add_argument("--warmup", type="integer", default=500, 
     help="Weramup iterations for MCMC Use a larger number for cold starts.")
+parser$add_argument("--init", type="character", default="random",
+    help="If distinct from random or '0', it must be the the path to a .rds file with an instance of a fitted model to sample the initial distribution of parameters for the chain.")
 
 args = parser$parse_args()
 for (i in 1:length(args)) {
@@ -85,7 +87,6 @@ county_train <- read_feather("data/county_train_.feather") %>%   # 1454 counties
   ) %>%
   mutate(interv_type = .env$intervention) %>%
   mutate(days_since_intrv = if_else(interv_type == "decrease", days_since_intrv_decrease, days_since_intrv_stayhome)) %>%
-  mutate(mask = !((fips %in% ny_counties) & (days_since_intrv > lag))) %>%
   ungroup()
 valid_fips = unique(county_train$fips)
 
@@ -119,24 +120,6 @@ model_data = stan_input_data(
 )
 saveRDS(model_data, paste0(dir, "./model_data.rds"))
 
-model = rstan::stan_model("stan_models/1_spatiotemporal.stan")
-
-# pre-fitting the variational model should take ~ 1h to convergence
-fit_vb = rstan::vb(
-  model, 
-  data=model_data,
-  adapt_engaged=FALSE,
-  eta = 0.25,
-  iter=100,
-  tol_rel_obj=0.001,
-  adapt_iter=250,
-  init="0",
-  pars=pars,
-  output_samples=250
-)
-saveRDS(fit_vb, paste0(dir, "./fit_variational.rds"))
-
-
 pars = c(
   "nchs_pre",
   "nchs_post",
@@ -161,27 +144,29 @@ pars = c(
   "ar_scale"
 )
 
-pars = rstan::extract(fit_vb, pars=pars)
 
-# create list of parameters sampling the variational distribution to
-# initialize the mcmc chains
-nchains = 4
-init_lists = map(1:nchains, function(i) {
-  map(pars, function(par) {
-    if (length(dim(par))==1)
-      return (par[i])
-    if (length(dim(par))==2)
-      return (par[i, ])
-    if (length(dim(par))==3)
-      return (par[i, , ])
-    print("error")
+if (init != "random" && init != "0")
+  prevfit = read_rds(init)
+  prevpars = rstan:exctract(prevfit, pars=pars)
+  init = map(1:nchains, function(i) {
+    map(prevpars, function(par) {
+      if (length(dim(par))==1)
+        return (par[i])
+      if (length(dim(par))==2)
+        return (par[i, ])
+      if (length(dim(par))==3)
+        return (par[i, , ])
+      print("error")
+    })
   })
-})
 
-# annoying but must do below bacause R indexing kills a dimension (drop=TRUE not helping) when D_post has dimension 1
-for (i in 1:nchains) {
-  init_lists[[i]]$beta_covars_post = matrix(init_lists[[i]]$beta_covars_post, nrow=model_data$D_post)
-  init_lists[[i]]$beta_covars_post_inter = matrix(init_lists[[i]]$beta_covars_post, nrow=model_data$D_post_inter)
+  # annoying but must do below bacause R indexing kills a dimension (drop=TRUE not helping) when D_post has dimension 1
+  for (i in 1:nchains) {
+    init[[i]]$beta_covars_post = matrix(init[[i]]$beta_covars_post, nrow=model_data$D_post)
+    init[[i]]$beta_covars_post_inter = matrix(init[[i]]$beta_covars_post, nrow=model_data$D_post_inter)
+  }
+else {
+  init = "random"
 }
 
 # the mcmc model should take 45 hours for 3000 iterations
@@ -189,9 +174,10 @@ fit_mcmc = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
-  iter=10,
-  warmup=9,
-  init=init_lists
-
+  iter=iter,
+  warmup=warmup,
+  init=init
+  pars=pars,
+  thin=thin,
 )
 saveRDS(fit_mcmc, paste0(dir, "./fit_mcmc.rds"))
