@@ -17,6 +17,8 @@ parser$add_argument("--intervention", type="character",
 )
 parser$add_argument("--exclude_ny", action="store_true", default=FALSE,
     help="Exclude the five counties from NY")
+parser$add_argument("--exclude_post_only", action="store_true", default=FALSE,
+    help="Exclude the five counties from NY only after intervention time")
 parser$add_argument("--lag", type="double", default=14.0, 
     help="Lag to use (time from infection to death).")
 parser$add_argument("--dir", type="character", default="", 

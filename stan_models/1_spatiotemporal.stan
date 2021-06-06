@@ -136,6 +136,11 @@ transformed parameters {
   matrix[3, 3] Sigma_state_eff = quad_form_diag(Omega_state_eff, scale_state_eff);
   matrix[3, 3] Sigma_rand_eff = quad_form_diag(Omega_rand_eff, scale_rand_eff);
   // real autocor = autocor_unc;  // for backward compaibility
+  if (autocor < 1.0) {
+    real ar_marginal_scale = ar_scale / sqrt(1.0 - square(autocor));
+  } else {
+    real ar_marginal_scale = ar_scale;
+  }
 }
 
 model {
@@ -187,13 +192,8 @@ model {
   }
   // target += - 0.5 * dot_self(time_term[ar_edges1] - time_term[ar_edges2]) / square(0.1);
   // time_term[ar_starts] ~ normal(0, 0.1);
-  if (autocor < 1.0) {
-    time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale);
-    time_term[ar_starts] ~ normal(0, ar_scale / sqrt(1.0 - square(autocor)));
-  } else {
-    target += - 0.5 * dot_self(time_term[ar_edges1] - time_term[ar_edges2]) / square(ar_scale);
-    time_term[ar_starts] ~ normal(0, ar_scale);
-  }
+  time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale);
+  time_term[ar_starts] ~ normal(0, ar_marginal_scale);
   time_term ~ normal(0, 100.0);  // shrink for stability
   // scale_time_term ~ inv_gamma(1.0, 1.0);
   // autocor_unc ~ beta(acor_mu * acor_prec, (1.0 - acor_mu) * acor_prec);
@@ -207,9 +207,12 @@ model {
     y ~ neg_binomial_2(exp(log_rate) + 1e-8, overdisp);
   }
   else {
-    for (n in 1:N)
-      if (mask[n] == 1)
-        target += neg_binomial_2_lpmf(y[n] | exp(log_rate[n]) + 1e-8, overdisp);
+    y[mask_obs] ~ neg_binomial_2(exp(log_rate[mask_obs]) + 1e-8, overdisp)
+    if (autocor < 1.0) {
+      time_term[mask_miss] ~ normal(0, ar_scale / sqrt(1.0 - square(autocor))); // this ones aren't observed
+    } else {
+      time_term[mask_miss] ~ normal(0, ar_marginal_scale); // this ones aren't observed
+    }
   }
 }
 
