@@ -189,7 +189,7 @@ model {
 
   if (autocor < 1.0) {
     time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale);
-    time_term[ar_starts] ~ normal(0, ar_marginal_scale);
+    time_term[ar_starts] ~ normal(0, ar_scale / sqrt(1.0 - square(autocor)));
   } else {
     target += - 0.5 * dot_self(time_term[ar_edges1] - time_term[ar_edges2]) / square(ar_scale);
     time_term[ar_starts] ~ normal(0, ar_scale);
@@ -208,7 +208,7 @@ model {
     y ~ neg_binomial_2(exp(log_rate) + 1e-8, overdisp);
   }
   else {
-    y[mask_obs] ~ neg_binomial_2(exp(log_rate[mask_obs]) + 1e-8, overdisp)
+    y[mask_obs] ~ neg_binomial_2(exp(log_rate[mask_obs]) + 1e-8, overdisp);
     if (autocor < 1.0) {
       time_term[mask_miss] ~ normal(0, 0.1 * ar_scale / sqrt(1.0 - square(autocor))); // this ones aren't observed
     } else {
