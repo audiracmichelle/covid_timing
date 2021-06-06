@@ -8,8 +8,9 @@ data {
   int<lower=0> D_post_inter; // number of covariates after internvention
   int<lower=0> M; // number of counties
   int<lower=0> y[N]; // deaths
-  int<lower=1,upper=N> mask_miss[N]; // ignores the y-values for these entries
-  int<lower=1,upper=N> mask_obs[N]; //
+  int<lower=0, upper=N> N_miss;
+  int<lower=1,upper=N> mask_miss[N_miss]; // ignores the y-values for these entries
+  int<lower=1,upper=N> mask_obs[N - N_miss]; //
   int<lower=0,upper=1> use_mask; // ignore some data entries (used for cross-validation training)
   real<lower=0, upper=1> use_post_inter;
   real<lower=0, upper=1> use_pre_inter;
