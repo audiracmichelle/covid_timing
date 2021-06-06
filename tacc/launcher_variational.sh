@@ -16,8 +16,8 @@
 module load gcc/9
 module load launcher
 
-cd $WORK2/covid_timing/fit
-export LAUNCHER_WORKDIR=$WORK2/covid_timing/fit
-export LAUNCHER_JOB_FILE=$WORK2/covid_timing/tacc/jobs.txt
+cd $WORK2/covid_timing/
+export LAUNCHER_WORKDIR=$WORK2/covid_timing/
+export LAUNCHER_JOB_FILE=$WORK2/covid_timing/tacc/jobs_variational.sh
 
 $LAUNCHER_DIR/paramrun
