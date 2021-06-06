@@ -106,7 +106,7 @@ model_data = stan_input_data(
   autocor=autocor,
   edges=edges
 )
-saveRDS(model_data, paste0(dir, "./model_data.rds"))
+saveRDS(model_data, paste0(dir, "/model_data.rds"))
 
 model = rstan::stan_model("stan_models/1_spatiotemporal.stan")
 
@@ -143,9 +143,9 @@ fit_vb = rstan::vb(
   adapt_engaged=FALSE,
   eta = 0.25,
   iter=iter,
-  tol_rel_obj=tol,
+  tol_rel_obj=rel_tol,
   init="0",
   pars=pars,
   output_samples=samples
 )
-saveRDS(fit_vb, paste0(dir, "./fit.rds"))
+saveRDS(fit_vb, paste0(dir, "/fit.rds"))
