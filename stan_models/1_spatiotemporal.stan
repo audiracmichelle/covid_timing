@@ -8,7 +8,8 @@ data {
   int<lower=0> D_post_inter; // number of covariates after internvention
   int<lower=0> M; // number of counties
   int<lower=0> y[N]; // deaths
-  int<lower=0,upper=1> mask[N]; // treats entries with value one as missing data
+  int<lower=1,upper=N> mask_miss[N]; // ignores the y-values for these entries
+  int<lower=1,upper=N> mask_obs[N]; //
   int<lower=0,upper=1> use_mask; // ignore some data entries (used for cross-validation training)
   real<lower=0, upper=1> use_post_inter;
   real<lower=0, upper=1> use_pre_inter;
@@ -136,11 +137,6 @@ transformed parameters {
   matrix[3, 3] Sigma_state_eff = quad_form_diag(Omega_state_eff, scale_state_eff);
   matrix[3, 3] Sigma_rand_eff = quad_form_diag(Omega_rand_eff, scale_rand_eff);
   // real autocor = autocor_unc;  // for backward compaibility
-  if (autocor < 1.0) {
-    real ar_marginal_scale = ar_scale / sqrt(1.0 - square(autocor));
-  } else {
-    real ar_marginal_scale = ar_scale;
-  }
 }
 
 model {
@@ -150,8 +146,8 @@ model {
   Omega_rand_eff ~ lkj_corr(2.0);
   Omega_state_eff ~ lkj_corr(2.0);
   scale_state_eff ~ normal(0, 15.0);
-  ar_scale ~ gamma(0.25 * M, 0.5 * M);
-  spatial_scale ~ gamma(0.25 * M, 0.5 * M);
+  ar_scale ~ gamma(square(M), 2 * square(M));
+  spatial_scale ~ normal(0.0, 2.0 / 17.0);
   to_vector(beta_covars_pre) ~ normal(0, 15.0);
   to_vector(beta_covars_post) ~ normal(0, 15.0);
   beta_covars_pre_inter[1, :] ~ normal(0, 0.001);
@@ -190,10 +186,15 @@ model {
     sum(time_term[(county_brks[j] + 1):(county_brks[j + 1])]) ~ normal(0.0, 0.001 * county_lens[j]);
     // time_term[(county_brks[j] + 2):(county_brks[j + 1])] ~ normal(autocor * time_term[(county_brks[j] + 1):(county_brks[j + 1] - 1)], 0.1);
   }
-  // target += - 0.5 * dot_self(time_term[ar_edges1] - time_term[ar_edges2]) / square(0.1);
-  // time_term[ar_starts] ~ normal(0, 0.1);
-  time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale);
-  time_term[ar_starts] ~ normal(0, ar_marginal_scale);
+
+  if (autocor < 1.0) {
+    time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale);
+    time_term[ar_starts] ~ normal(0, ar_marginal_scale);
+  } else {
+    target += - 0.5 * dot_self(time_term[ar_edges1] - time_term[ar_edges2]) / square(ar_scale);
+    time_term[ar_starts] ~ normal(0, ar_scale);
+  }
+ 
   time_term ~ normal(0, 100.0);  // shrink for stability
   // scale_time_term ~ inv_gamma(1.0, 1.0);
   // autocor_unc ~ beta(acor_mu * acor_prec, (1.0 - acor_mu) * acor_prec);
@@ -209,9 +210,10 @@ model {
   else {
     y[mask_obs] ~ neg_binomial_2(exp(log_rate[mask_obs]) + 1e-8, overdisp)
     if (autocor < 1.0) {
-      time_term[mask_miss] ~ normal(0, ar_scale / sqrt(1.0 - square(autocor))); // this ones aren't observed
+      time_term[mask_miss] ~ normal(0, 0.1 * ar_scale / sqrt(1.0 - square(autocor))); // this ones aren't observed
     } else {
-      time_term[mask_miss] ~ normal(0, ar_marginal_scale); // this ones aren't observed
+      time_term[mask_miss] ~ normal(0, ar_scale); // this ones aren't observed
+
     }
   }
 }
