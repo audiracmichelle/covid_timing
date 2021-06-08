@@ -2,7 +2,7 @@
 
 #SBATCH -J variational
 #SBATCH -N 1
-#SBATCH -n 12
+#SBATCH -n 8
 #SBATCH --cpus-per-task 4
 #SBATCH -p small
 #SBATCH -o variational.%j.out

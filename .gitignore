@@ -1,5 +1,6 @@
 **/res_maps.pdf
 **/res_rel_maps.pdf
+miniconda3/
 
 **/*.err
 **/*.out

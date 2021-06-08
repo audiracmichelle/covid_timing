@@ -1,7 +1,6 @@
 library(tidyverse)
 library(magrittr)
 library(feather)
-library(collections)
 library(igraph)
 library(lubridate)
 library(argparse)
@@ -45,11 +44,13 @@ parser$add_argument("--post_vars", type="character",
 parser$add_argument("--post_inter_vars", type="character",
     default="",
     help="Control variables for the post-trend that interact with NCHS. The timing (days between intervention and threshold) is always added to the list.")
-parser$add_argument("--iter", type="double", default=100000, 
+parser$add_argument("--ar_relax_prior_scale", action="store_false", dest="ar_tight_prior_scale", default=TRUE,
+    help="When selected the prior scaling is 1/sqrt(M) instead of 1/M where M is the number of counties.")
+parser$add_argument("--iter", type="double", default=50000, 
     help="Max number of iterations for stan variational algorithm")
 parser$add_argument("--samples", type="integer", default=250, 
     help="Number of sample samples for rstan vb algorithm")
-parser$add_argument("--rel_tol", type="double", default=0.001, 
+parser$add_argument("--rel_tol", type="double", default=0.0005, 
     help="Relative tolerance for rstan vb algorithm")
 
 args = parser$parse_args()
@@ -96,7 +97,6 @@ if (exclude_ny) {
     }
 }
 
-  mutate(mask = !((fips %in% ny_counties) & (days_since_intrv > lag))) %>%
 edges = read_csv("data/fips_adjacency.csv") %>% 
   # filter(isnbr) %>%
   filter(dist <= 200) %>%
@@ -114,7 +114,8 @@ model_data = stan_input_data(
   use_pre_inter=use_pre_inter,
   use_post_inter=use_post_inter,
   autocor=autocor,
-  edges=edges
+  edges=edges,
+  ar_tight_prior_scale=ar_tight_prior_scale
 )
 saveRDS(model_data, paste0(dir, "/model_data.rds"))
 
@@ -141,6 +142,8 @@ pars = c(
   "Omega_state_eff",
   "scale_state_eff",
   "scale_rand_eff",
+  "spatial_eff",
+  "time_term",
   "spatial_scale",
   "ar_scale"
 )

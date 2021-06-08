@@ -47,6 +47,7 @@ data {
   // real spatial_scale;
   // real<lower=0> ar_scale;
   real<lower=0.0, upper=1.0> autocor;
+  int<lower=0, upper=1> ar_tight_prior_scale;
 }
 
 transformed data{
@@ -64,7 +65,7 @@ parameters {
   row_vector<lower=-15.0,upper=15.0>[order + 1] baseline_pre;
   matrix<lower=-15.0,upper=15.0>[D_post, order] beta_covars_post;
   matrix<lower=-15.0,upper=15.0>[6, D_post_inter] beta_covars_post_inter;
-  matrix<lower=-15.0,upper=15.0>[6, 2 * D_pre_inter] beta_covars_pre_inter;
+  matrix<lower=-15.0,upper=15.0>[6, 3 * D_pre_inter] beta_covars_pre_inter;
   row_vector<lower=-15.0,upper=15.0>[order] baseline_post;
   matrix<lower=-15.0,upper=15.0>[6, 1] nchs_post_lin;
   matrix<lower=-15.0,upper=0.0>[6, 1] nchs_post_quad;
@@ -118,7 +119,8 @@ transformed parameters {
     tpoly_pre
   ) + use_pre_inter * (
     rows_dot_product(X_pre_inter, beta_covars_pre_inter[nchs_id, 1:D_pre_inter]) +
-    col(tpoly_pre, 2) .* rows_dot_product(X_pre_inter, beta_covars_pre_inter[nchs_id, (D_pre_inter + 1):(2 * D_pre_inter)])
+    col(tpoly_pre, 2) .* rows_dot_product(X_pre_inter, beta_covars_pre_inter[nchs_id, (D_pre_inter + 1):(2 * D_pre_inter)]) +
+    col(tpoly_pre, 3) .* rows_dot_product(X_pre_inter, beta_covars_pre_inter[nchs_id, (2 * D_pre_inter + 1):(3 * D_pre_inter)])
   );
   // if (use_pre_inter == 1)
   //   pre_term = pre_term + pre_inter_term0 + pre_inter_term1;
@@ -143,12 +145,21 @@ transformed parameters {
 model {
   // parameter priors
   overdisp ~ exponential(1.0);
-  scale_rand_eff ~ normal(0, 1.0 / 17.0);
+  // scale_rand_eff ~ normal(0, 1.0 / 17.0);
+  scale_rand_eff ~ normal(0, 0.05);
   Omega_rand_eff ~ lkj_corr(2.0);
   Omega_state_eff ~ lkj_corr(2.0);
-  scale_state_eff ~ normal(0, 15.0);
-  ar_scale ~ gamma(square(M), 2 * square(M));
-  spatial_scale ~ normal(0.0, 2.0 / 17.0);
+  // scale_state_eff ~ normal(0, 15.0);
+  scale_state_eff ~ normal(0, 5.0);
+  if (ar_tight_prior_scale == 1) {
+    // ar_scale ~ gamma(0.5 * square(M), square(M));
+    // ar_scale ~ gamma(0.5 * M, M);
+    ar_scale ~ normal(0.0, 0.1 / N);
+  } else {
+    ar_scale ~ normal(0.0, 0.1 / sqrt(N));
+  }
+  // spatial_scale ~ normal(0.0, 2.0 / 17.0);
+  spatial_scale ~ normal(0.0, 0.1);
   to_vector(beta_covars_pre) ~ normal(0, 15.0);
   to_vector(beta_covars_post) ~ normal(0, 15.0);
   beta_covars_pre_inter[1, :] ~ normal(0, 0.001);
@@ -163,10 +174,10 @@ model {
   baseline_pre ~ normal(0.0, 15.0);
 
   // random effect priors (independent)
-  for (i in 1:M)
-    row(rand_eff, i) ~ multi_normal(rep_vector(0.0, order + 1), Sigma_rand_eff);
   for (i in 1:N_states)
     row(state_eff, i) ~ multi_normal(rep_vector(0.0, order + 1), Sigma_state_eff);
+  for (i in 1:M)
+    row(rand_eff, i) ~ multi_normal(state_eff[state_id[i]], Sigma_rand_eff);
   for (j in 1:(order + 1)) {
     col(state_eff, j) ~ normal(0, 100.0);  // tiny reg
     col(rand_eff, j) ~ normal(0, 100.0);  // tiny reg
@@ -213,7 +224,7 @@ model {
     if (autocor < 1.0) {
       time_term[mask_miss] ~ normal(0, 0.1 * ar_scale / sqrt(1.0 - square(autocor))); // this ones aren't observed
     } else {
-      time_term[mask_miss] ~ normal(0, ar_scale); // this ones aren't observed
+      time_term[mask_miss] ~ normal(0, 0.1 * ar_scale); // this ones aren't observed
 
     }
   }

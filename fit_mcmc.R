@@ -1,11 +1,14 @@
 library(tidyverse)
 library(magrittr)
 library(feather)
-library(collections)
 library(igraph)
 library(lubridate)
 library(argparse)
 library(yaml)
+library(reticulate)
+library(rstan)
+library(abind)
+
 options(mc.cores = 4)
 source("./utils.R")
 
@@ -16,22 +19,22 @@ parser$add_argument("--intervention", type="character",
     help="intervention_type"
 )
 parser$add_argument("--exclude_ny", action="store_true", default=FALSE,
-    help="Exclude the five counties from NY")
+    help="Exclude the five counties from NY city")
 parser$add_argument("--exclude_post_only", action="store_true", default=FALSE,
     help="Exclude the five counties from NY only after intervention time")
 parser$add_argument("--lag", type="double", default=14.0, 
     help="Lag to use (time from infection to death).")
 parser$add_argument("--dir", type="character", default="", 
     help="Folder where to save output model.")
-parser$add_argument("--spatial", action="store_true", default=TRUE,
+parser$add_argument("--no_spatial", action="store_false", default=TRUE, dest="spatial",
     help="Adds an intrinsic spatial ICAR term")
-parser$add_argument("--temporal", action="store_true", default=TRUE,
+parser$add_argument("--no_temporal", action="store_false", default=TRUE, dest="temporal",
     help="Adds am intrinsic tempoeral autoregressive term. The autocorrelation is set by --autocor")
 parser$add_argument("--autocor", type="double", default=0.8, 
     help="Autocorrelation for intrinsic term. If autocor=1.0 it uses a random walk.")
-parser$add_argument("--use_post_inter", action="store_true", default=TRUE,
+parser$add_argument("--no_post_inter", action="store_false", default=TRUE, dest="use_post_inter",
     help="Use interaction variables for post-trend")
-parser$add_argument("--use_pre_inter", action="store_true", default=TRUE,
+parser$add_argument("--no_pre_inter", action="store_false", default=TRUE, dest="use_pre_inter",
     help="Use interaction variables for pre-trend")
 parser$add_argument("--pre_vars", type="character",
     default="college age_65_plus black hispanic popdensity",
@@ -45,16 +48,19 @@ parser$add_argument("--post_vars", type="character",
 parser$add_argument("--post_inter_vars", type="character",
     default="",
     help="Control variables for the post-trend that interact with NCHS. The timing (days between intervention and threshold) is always added to the list.")
+parser$add_argument("--ar_relax_prior_scale", action="store_false", dest="ar_tight_prior_scale", default=TRUE,
+    help="When selected the prior scaling is 1/sqrt(M) instead of 1/M where M is the number of counties.")
 parser$add_argument("--nchains", type="integer", default=4, 
     help="Number of chains")
-parser$add_argument("--thin", type="integer", default=12, 
-    help="Thinning. Adjust to with chains and iters to more less end up with 1000 samples. (More will break memory in analysis.)")
-parser$add_argument("--iter", type="integer", default=3500, 
+parser$add_argument("--thin", type="integer", default=10, 
+    help="Thinning. Adjust to with chains and iters to more less end up with 800~1000 samples. (More will break memory in analysis.)")
+parser$add_argument("--iter", type="integer", default=2500, 
     help="Number of iterations for the chain")
 parser$add_argument("--warmup", type="integer", default=500, 
     help="Weramup iterations for MCMC Use a larger number for cold starts.")
 parser$add_argument("--init", type="character", default="random",
     help="If distinct from random or '0', it must be the the path to a .rds file with an instance of a fitted model to sample the initial distribution of parameters for the chain.")
+
 
 args = parser$parse_args()
 for (i in 1:length(args)) {
@@ -118,9 +124,10 @@ model_data = stan_input_data(
   use_pre_inter=use_pre_inter,
   use_post_inter=use_post_inter,
   autocor=autocor,
-  edges=edges
+  edges=edges,
+  ar_tight_prior_scale=ar_tight_prior_scale
 )
-saveRDS(model_data, paste0(dir, "./model_data.rds"))
+saveRDS(model_data, paste0(dir, "/model_data.rds"))
 
 pars = c(
   "nchs_pre",
@@ -138,6 +145,8 @@ pars = c(
   "state_eff_lin",
   "state_eff_quad",
   "state_eff",
+  "spatial_eff",
+  "time_term",
   "Omega_rand_eff",
   "Omega_state_eff",
   "scale_state_eff",
@@ -147,9 +156,9 @@ pars = c(
 )
 
 
-if (init != "random" && init != "0")
+if (init != "random" && init != "0") {
   prevfit = read_rds(init)
-  prevpars = rstan:exctract(prevfit, pars=pars)
+  prevpars = rstan::extract(prevfit, pars=pars)
   init = map(1:nchains, function(i) {
     map(prevpars, function(par) {
       if (length(dim(par))==1)
@@ -164,22 +173,28 @@ if (init != "random" && init != "0")
 
   # annoying but must do below bacause R indexing kills a dimension (drop=TRUE not helping) when D_post has dimension 1
   for (i in 1:nchains) {
-    init[[i]]$beta_covars_post = matrix(init[[i]]$beta_covars_post, nrow=model_data$D_post)
-    init[[i]]$beta_covars_post_inter = matrix(init[[i]]$beta_covars_post, nrow=model_data$D_post_inter)
+    if (model_data$D_post == 1)
+      init[[i]]$beta_covars_post = matrix(init[[i]]$beta_covars_post, nrow=1)
+    if (model_data$D_post_inter == 1)
+      init[[i]]$beta_covars_post_inter = matrix(init[[i]]$beta_covars_post_inter, ncol=1)
+    init[[i]]$rand_eff_quad = matrix(init[[i]]$rand_eff_quad, ncol=1)
+    init[[i]]$state_eff_quad = matrix(init[[i]]$state_eff_quad, ncol=1)
   }
-else {
+} else {
   init = "random"
 }
 
 # the mcmc model should take 45 hours for 3000 iterations
+model = rstan::stan_model("stan_models/1_spatiotemporal.stan")
 fit_mcmc = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
   iter=iter,
   warmup=warmup,
-  init=init
+  init=init,
   pars=pars,
   thin=thin,
+  refresh=10 # to measure sampling speed
 )
-saveRDS(fit_mcmc, paste0(dir, "./fit_mcmc.rds"))
+saveRDS(fit_mcmc, paste0(dir, "/fit_mcmc.rds"))

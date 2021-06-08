@@ -37,7 +37,8 @@ parnames = c(
   "state_eff", "rand_eff",
   "Omega_rand_eff", "Omega_state_eff",
   "scale_state_eff", "scale_rand_eff",
-  "duration_unc", "lag_unc", "autocor_unc", "time_term"
+  "duration_unc", "lag_unc", "autocor_unc", "time_term",
+  "lag","duration"
 )
 
 fit = rstan::vb(
@@ -87,7 +88,7 @@ fit2 = rstan::sampling(
   warmup=2000,
   save_warmup=FALSE,
   pars=parnames,
-  thin=10
+  thin=10,
   init=init_lists
 )
 

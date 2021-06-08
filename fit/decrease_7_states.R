@@ -86,7 +86,7 @@ fit2 = rstan::sampling(
   warmup=4000,
   save_warmup=FALSE,
   pars=parnames,
-  thin=10
+  thin=10,
   init=init_lists
 )
 

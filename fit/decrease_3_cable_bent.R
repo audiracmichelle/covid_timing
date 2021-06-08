@@ -82,11 +82,11 @@ fit2 = rstan::sampling(
   model,
   data=model_data,
   chains=nchains,
-  iter=5000,
-  warmup=4000,
+  iter=3000,
+  warmup=1500,
   save_warmup=FALSE,
   pars=parnames,
-  thin=10
+  thin=15,
   init=init_lists
 )
 

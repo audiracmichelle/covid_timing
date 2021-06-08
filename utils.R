@@ -26,7 +26,8 @@ stan_input_data = function(
   use_post_inter = TRUE,
   use_pre_inter = FALSE,
   spatial_scale = 1.0,
-  autocor=0.7
+  autocor=0.7,
+  ar_tight_prior_scale=FALSE
 ) {
   
   if (is.null(old_model_data)) {
@@ -225,7 +226,8 @@ stan_input_data = function(
     pre_inter_vars=pre_inter_vars,
     post_inter_vars=post_inter_vars,
     spatial_scale=spatial_scale,
-    autocor=autocor
+    autocor=autocor,
+    ar_tight_prior_scale=as.integer(ar_tight_prior_scale)
   )
   
   if (!is.null(edges)) {
