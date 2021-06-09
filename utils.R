@@ -12,7 +12,7 @@ nbinom = scipy_stats$nbinom
 stan_input_data = function(
   county_train,
   type=c("stayhome", "decrease"),
-  lag=12,
+  lag=14,
   order=2,
   use_mask=FALSE,
   edges=NULL,
@@ -22,11 +22,12 @@ stan_input_data = function(
   pre_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
   post_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
   pre_inter_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
-  post_inter_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
-  use_post_inter = TRUE,
-  use_pre_inter = FALSE,
-  spatial_scale = 1.0,
+  post_inter_vars = c(),
+  use_post_inter = FALSE,
+  use_pre_inter = TRUE,
+  spatial_scale_fixed = 1.0,
   autocor=0.7,
+  k_nbrs=2,
   ar_tight_prior_scale=FALSE
 ) {
   
@@ -43,7 +44,7 @@ stan_input_data = function(
     post_inter_vars = old_model_data$post_inter_vars
     pre_vars = old_model_data$pre_vars
     post_vars = old_model_data$post_vars
-    spatial_scale = old_model_data$spatial_scale
+    spatial_scale_fixed = old_model_data$spatial_scale_fixed
     ar_scale = old_model_data$ar_scale
     autocor = old_model_data$autocor
   }
@@ -213,6 +214,7 @@ stan_input_data = function(
     ar_edges1=ar_edges1,
     ar_edges2=ar_edges2,
     ar_starts=ar_starts,
+    ar_tight_prior_scale=as.integer(ar_tight_prior_scale),
     lag=lag,
     df=county_train,
     type=type[1],
@@ -225,9 +227,8 @@ stan_input_data = function(
     post_vars=post_vars,
     pre_inter_vars=pre_inter_vars,
     post_inter_vars=post_inter_vars,
-    spatial_scale=spatial_scale,
-    autocor=autocor,
-    ar_tight_prior_scale=as.integer(ar_tight_prior_scale)
+    spatial_scale_fixed=spatial_scale_fixed,
+    autocor=autocor
   )
   
   if (!is.null(edges)) {
@@ -235,61 +236,97 @@ stan_input_data = function(
     fips = output$fips_ids
     fips2id = setNames(1:length(output$fips_ids), fips)
     dist_scale = 50
-    
-    # now the titanic
-    edges_ = edges %>%
+
+    # make nearest neighbors graph
+    edges_ = edges %>% 
+      ungroup() %>% 
+      mutate(tmp=src_lab, src_lab=tgt_lab, tgt_lab=tmp, tmp=src, src=tgt, tgt=tmp) %>% 
+      bind_rows(edges) %>%
+      arrange(src, dist) %>% 
+      group_by(src) %>% 
+      slice(1:k_nbrs) %>%  # keep 2 nearest neighbors
+      ungroup() %>%
+      bind_rows(filter(edges, isnbr)) %>%
+      mutate(src_lab_ = pmin(src_lab, tgt_lab), tgt_lab_ = pmax(src_lab, tgt_lab)) %>% 
+      distinct(src_lab_, tgt_lab_, .keep_all = TRUE) %>% 
+      select(-tmp)
+
+    # # now the titanic
+    edges_ = edges_ %>%
       mutate(
         wts = ifelse(
           isnbr,
           1.0,
-          pmin(1.0, 0.5 * (dist_scale / dist)^2)
+          1.0 # pmin(1.0, (dist_scale / dist))
         )
       )
+    output$edges_post = edges_
     g = igraph::graph_from_data_frame(
       select(edges_, src_lab, tgt_lab),
-      vertices=fips,
+      vertices=unique(fips),
       directed=FALSE
     )
+    output$n_nbrs = map_int(adjacent_vertices(g, fips), length)
     output$N_edges = nrow(edges_)
     output$edge_weights = edges_$wts
     comps = components(g)
     output$csizes = comps$csize
     output$csorted = fips2id[names(comps$membership)]
+    atleast2 = output$n_nbrs > 2
     output$node1 = fips2id[edges_$src_lab]
     output$node2 = fips2id[edges_$tgt_lab]
-    output$cmemb = county_train %>% 
+    # 
+    output$cmemb = county_train %>%
       left_join(
         tibble(fips=names(comps$membership), cmemb=comps$membership)
-      ) %>% 
+      ) %>%
       pull(cmemb)
     output$N_comps = comps$no
     output$cbrks = c(0, cumsum(comps$csize))
-    output$n_nbrs = map_int(adjacent_vertices(g, fips), length)
-    nbrs_eff = edges_ %>% 
-      mutate(tmp=src_lab, src_lab=tgt_lab, tgt_lab=tmp) %>% 
-      bind_rows(edges_) %>% 
-      group_by(src_lab) %>% 
-      summarize(nbrs_eff = sum(wts), .groups="drop")
-    
+
+    nbrs_eff = edges_ %>%
+      mutate(tmp=src_lab, src_lab=tgt_lab, tgt_lab=tmp) %>%
+      bind_rows(edges_) %>%
+      group_by(src_lab) %>%
+      summarize(nbrs_eff = sum(wts), nbrs_d = length(wts), .groups="drop")
+
     scale_factor = tibble(
       src_lab = names(comps$membership),
       membership = comps$membership
     ) %>%
       left_join(nbrs_eff, by="src_lab") %>% 
       group_by(membership) %>% 
-      summarize(scale_factor =  0.7 * sqrt(mean(nbrs_eff)), .groups="drop")
+      summarize(mean_nbrs_d = mean(nbrs_d), mean_nbrs_eff = mean(nbrs_eff), scale_factor =  0.7 * sqrt(mean(nbrs_eff)), .groups="drop")
+    
+    
+    scale_factor2 = tibble(
+      src_lab = names(comps$membership),
+      membership = comps$membership
+    )  %>%
+      left_join(nbrs_eff, by="src_lab") %>% 
+      group_by(membership) %>% 
+      mutate(mean_nbrs = rep(mean(nbrs_d), n()), mean_nbrs_eff = rep(mean(nbrs_eff), n()), csize = n()) %>% 
+      ungroup()
+    mean_nbrs = setNames(scale_factor2$mean_nbrs, scale_factor2$src_lab)
+    mean_nbrs_eff = setNames(scale_factor2$mean_nbrs_eff, scale_factor2$src_lab)
+    
+    output$cmeannbrs_eff = scale_factor$mean_nbrs_eff[output$cmemb]
+    output$cmeannbrs_eff[is.na(output$cmeannbrs_eff)] = 0
+    output$cmeannbrs_d = scale_factor$mean_nbrs_d[output$cmemb]
+    output$cmeannbrs_d[is.na(output$cmeannbrs_d)] = 0
     output$inv_scaling_factor = 1.0 / scale_factor$scale_factor
     scale_factor$scale_factor[is.na(scale_factor$scale_factor)] = 0
     output$inv_scaling_factor[is.na(output$inv_scaling_factor)] = 0
     output$scaling_factor = scale_factor$scale_factor
     output$nbrs_eff = nbrs_eff$nbrs_eff
+    output$bym_scaled_edge_weights = output$edge_weights / (0.7 * sqrt(mean_nbrs_eff[output$node1]))
     output
   }
   
   output
 }
 
-# posterior predicts outputs the predicted deaths
+# posterior predicts outputs the predicted deathss
 posterior_predict = function (
   fit,
   model_data,
@@ -380,8 +417,17 @@ posterior_predict = function (
   
   pre_term = pre_term + offset_
   
-  if (temporal)
-    pre_term = pre_term + np$array(pars$time_term)
+  if (temporal) {
+    time_eff = pars$time_term
+    M = new_data$M
+    brks = new_data$county_brks
+    for (j in 1:M) {
+      start = brks[j] + 1
+      finish = brks[j + 1]
+      time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
+    }
+    pre_term = pre_term + time_eff
+  }
   
   if (states) {
     state_eff_unrolled = np$array(pars$state_eff[ ,new_data$state_id, ])
@@ -468,13 +514,22 @@ posterior_predict = function (
     X_pre_inter = np$expand_dims(X_pre_inter, 0L)
     X_pre_inter = np$expand_dims(X_pre_inter, 3L)
     D_inter = new_data$D_pre_inter
+
     beta_covars_pre_inter0 =  np$expand_dims(pars$beta_covars_pre_inter[, new_data$nchs_id, 1:D_inter, drop=FALSE], -1L)
-    beta_covars_pre_inter1 =  np$expand_dims(pars$beta_covars_pre_inter[, new_data$nchs_id, -(1:D_inter), drop=FALSE], -1L)
-    pre_inter_term0 = np$sum(np$multiply(beta_covars_pre_inter0, X_pre_inter), 2L)[ , , 1]
-    pre_inter_term1 = np$sum(np$multiply(beta_covars_pre_inter1, X_pre_inter), 2L)[ , , 1]
+    beta_covars_pre_inter1 =  np$expand_dims(pars$beta_covars_pre_inter[, new_data$nchs_id, (D_inter + 1):(2 * D_inter), drop=FALSE], -1L)
+    beta_covars_pre_inter2 =  np$expand_dims(pars$beta_covars_pre_inter[, new_data$nchs_id, (2 * D_inter + 1):(3 * D_inter), drop=FALSE], -1L)
+   
+     pre_inter_term0 = np$sum(np$multiply(beta_covars_pre_inter0, X_pre_inter), 2L)[ , , 1]
+    
     t1 = np$expand_dims(new_data$tpoly_pre[ , 2], 0L)
+    pre_inter_term1 = np$sum(np$multiply(beta_covars_pre_inter1, X_pre_inter), 2L)[ , , 1]
     pre_inter_term1 = np$multiply(t1, pre_inter_term1)
-    post_term = post_term + pre_inter_term0 + pre_inter_term1
+    
+    t2 = np$expand_dims(new_data$tpoly_pre[ ,3], 0L)
+    pre_inter_term2 = np$sum(np$multiply(beta_covars_pre_inter2, X_pre_inter), 2L)[ , , 1]
+    pre_inter_term2 = np$multiply(t2, pre_inter_term2)
+  
+    pre_term = pre_term + pre_inter_term0 + pre_inter_term1 + pre_inter_term2
   }
   
   log_rate = pre_term + post_term
