@@ -86,7 +86,7 @@ parameters {
   //
   matrix<lower=-15.0,upper=15.0>[M, 2] spatial_eff_lin;   // scaled spatial effects
   matrix<lower=-15.0,upper=0.0>[M, 1] spatial_eff_quad;   // scaled spatial effects
-  real<lower=0.001, upper=30.0> spatial_scale;
+  vector<lower=0.001, upper=20.0>[3] spatial_scale;
 
   // for temporal error
   vector<lower=-15.0, upper=15.0>[N] time_term;
@@ -192,7 +192,7 @@ model {
   // scale_spatial_eff ~ normal(0, 10.0);
   for (j in 1:3) {
     if (spatial_scale_fixed == 0.0) {
-      target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale);
+      target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale[j]);
     } else {
       target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale_fixed);
     }

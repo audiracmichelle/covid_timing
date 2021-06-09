@@ -123,7 +123,6 @@ stan_input_data = function(
   }
   
   X_pre = as.matrix(county_train[ ,pre_vars])
-  X_post = as.matrix(county_train[ ,post_vars])
   X_pre_inter = as.matrix(county_train[ ,pre_inter_vars])
 
   X_post_inter = 0.01 * matrix(county_train$days_since_thresh, ncol=1)
@@ -149,8 +148,7 @@ stan_input_data = function(
   
   X_post = matrix(days_btwn, ncol=1) / tscale
   X_post[is.na(X_post)] = 0.0
-  if (all_post)
-    X_post = cbind(X_post, X_pre)
+  X_post = cbind(X_post, as.matrix(county_train[ ,post_vars]))
   
   # mu_X_post = apply(X_post, 2, mean)
   # sd_X_post = apply(X_post, 2, sd)
