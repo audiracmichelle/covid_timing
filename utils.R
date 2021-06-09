@@ -103,6 +103,8 @@ stan_input_data = function(
   } else if (type[1] == "decrease") {
     days_since_intrv = county_train$days_since_intrv_decrease
     days_btwn = county_train$days_btwn_decrease_thresh
+  } else {
+    print("ERROR: NOT ALLOWED INTERVENTION")
   }
   days_since_intrv[is.na(days_since_intrv)] = -1e6
   
@@ -122,45 +124,50 @@ stan_input_data = function(
     offset_baseline = old_model_data$offset_baseline
   }
   
-  X_pre = as.matrix(county_train[ ,pre_vars])
-  X_pre_inter = as.matrix(county_train[ ,pre_inter_vars])
-
-  X_post_inter = 0.01 * matrix(county_train$days_since_thresh, ncol=1)
-  if (length(post_inter_vars) > 1)
-    X_post_inter = cbind(X_post_inter, as.matrix(county_train[ ,post_inter_vars]))
   
   offset = log(county_train$pop) - mean(log(county_train$pop)) + offset_baseline
-  
-  if (is.null(old_model_data)) {
-    mu_X_pre = apply(X_pre, 2, mean)
-    sd_X_pre = apply(X_pre, 2, sd)
-  } else{
-    mu_X_pre = old_model_data$normalizing_stats$mean
-    sd_X_pre = old_model_data$normalizing_stats$sd
+
+  # normalizeing stats
+  if (!is.null(old_model_data)) {
+    normalizing_stats = old_model_data$normalizing_stats
+  } else {
+    vars = unique(c(pre_vars, post_vars, pre_inter_vars, post_inter_vars))
+    X_vars = as.matrix(county_train[ ,vars])
+    mu_X = apply(X_vars, 2, mean)
+    sd_X = apply(X_vars, 2, sd)
+    normalizing_stats = list(
+      mean=setNames(mu_X, vars),
+      sd=setNames(sd_X, vars)
+    )
   }
+  
+  # if (is.null(old_model_data)) {
+  #   mu_X_pre = apply(X_pre, 2, mean)
+  #   sd_X_pre = apply(X_pre, 2, sd)
+  # } else{
+  #   mu_X_pre = old_model_data$normalizing_stats$mean
+  #   sd_X_pre = old_model_data$normalizing_stats$sd
+  # }
   # print(dim(X_pre))
+  mu_X_pre = normalizing_stats$mean[pre_vars]
+  sd_X_pre = normalizing_stats$sd[pre_vars]
   for (j in 1:ncol(X_pre))
     X_pre[ ,j] = (X_pre[ ,j] - mu_X_pre[j]) / sd_X_pre[j]
-  mu = mu_X_pre
-  sig = sd_X_pre
-  varname = names(mu_X_pre)
-  normalizing_stats = tibble(variable=varname, mean=mu, sd=sig)
-  
+
   X_post = matrix(days_btwn, ncol=1) / tscale
   X_post[is.na(X_post)] = 0.0
-  X_post = cbind(X_post, as.matrix(county_train[ ,post_vars]))
+  if (length(post_vars) > 0) {
+    mu_X_post = normalizing_stats$mean[post_vars]
+    sd_X_post = normalizing_stats$sd[post_vars]
+    X_post_ = as.matrix(county_train[ ,post_vars])
+    for (j in 1:ncol(X_post_))
+      X_post_[ ,j] = (X_post_[ ,j] - mu_X_post[j]) / sd_X_post[j]
+    X_post = cbind(X_post, X_post_)
+  }
   
-  # mu_X_post = apply(X_post, 2, mean)
-  # sd_X_post = apply(X_post, 2, sd)
-  # for (j in 1:ncol(X_post))
-  #   X_post[ ,j] = (X_post[ ,j] - mu_X_post[j]) / sd_X_post[j]
-  # 
-  # mu = c(mu_X_pre, mu_X_post)
-  # sig = c(sd_X_pre, sd_X_post)
-  # varname = c(names(mu_X_pre), names(mu_X_post))
-  # normalizing_stats = tibble(variable=varname, mean=mu, sd=sig)
-  # write_csv(normalizing_stats, "normalizing_stats.csv")
-  
+  X_post_inter = X_post
+  X_pre_inter = X_pre
+
   time_id = as.integer(county_train$days_since_thresh)
   time_id = 1 + time_id - min(time_id)
   Tmax = max(time_id)
@@ -170,8 +177,6 @@ stan_input_data = function(
   if (!("mask" %in% names(county_train)))
     county_train$mask = rep(1, nrow(county_train))
   
-  X_post_inter = X_post
-  X_pre_inter = X_pre
   
   output = list(
     N = nrow(county_train),
