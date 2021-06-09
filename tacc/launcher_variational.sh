@@ -2,22 +2,22 @@
 
 #SBATCH -J variational
 #SBATCH -N 1
-#SBATCH -n 8
+#SBATCH -n 12
 #SBATCH --cpus-per-task 4
-#SBATCH -p small
+#SBATCH -p skx-normal
 #SBATCH -o variational.%j.out
 #SBATCH -e variational.%j.err
-#SBATCH -t 2:59:00
+#SBATCH -t 3:59:00
 #SBATCH -A A-ib1
 
 
 #------------------------------------------------------
 
-module load gcc/9
 module load launcher
 
-cd $WORK2/covid_timing/
-export LAUNCHER_WORKDIR=$WORK2/covid_timing/
-export LAUNCHER_JOB_FILE=$WORK2/covid_timing/tacc/jobs_variational.sh
+wdir=/work2/05863/mgarciat/frontera/covid_timing
+cd $wdir
+export LAUNCHER_WORKDIR=$wdir
+export LAUNCHER_JOB_FILE=tacc/jobs_variational.sh
 
 $LAUNCHER_DIR/paramrun

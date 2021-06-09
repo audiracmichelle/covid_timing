@@ -28,9 +28,9 @@ parser$add_argument("--no_temporal", action="store_false", default=TRUE, dest="t
     help="Adds am intrinsic tempoeral autoregressive term. The autocorrelation is set by --autocor")
 parser$add_argument("--autocor", type="double", default=0.7, 
     help="Autocorrelation for intrinsic term. If autocor=1.0 it uses a random walk.")
-parser$add_argument("--spatial_scale", type="double", default=0.0, 
+parser$add_argument("--spatial_scale", type="double", default=0.0, dest="spatial_scale_fixed",
     help="When positive it fixes the scale of the spatial process. If 0.0 the scale is learned with BYM scaling.")
-parser$add_argument("--no_post_inter", action="store_false", default=TRUE, dest="use_post_inter",
+parser$add_argument("--use_post_inter", action="store_true", default=FALSE,
     help="Use interaction variables for post-trend")
 parser$add_argument("--no_pre_inter", action="store_false", default=TRUE, dest="use_pre_inter",
     help="Use interaction variables for pre-trend")
@@ -46,13 +46,13 @@ parser$add_argument("--post_vars", type="character",
 parser$add_argument("--post_inter_vars", type="character",
     default="",
     help="Control variables for the post-trend that interact with NCHS. The timing (days between intervention and threshold) is always added to the list.")
-parser$add_argument("--ar_relax_prior_scale", action="store_false", dest="ar_tight_prior_scale", default=TRUE,
-    help="When selected the prior scaling is 1/sqrt(M) instead of 1/M where M is the number of counties.")
-parser$add_argument("--iter", type="double", default=50000, 
+parser$add_argument("--ar_tight_prior_scale", action="store_true", default=FALSE,
+    help="When selected the prior scaling is 1/N instead of 1/sqrt(N).")
+parser$add_argument("--iter", type="double", default=100000, 
     help="Max number of iterations for stan variational algorithm")
 parser$add_argument("--samples", type="integer", default=250, 
     help="Number of sample samples for rstan vb algorithm")
-parser$add_argument("--rel_tol", type="double", default=0.0005, 
+parser$add_argument("--rel_tol", type="double", default=0.001, 
     help="Relative tolerance for rstan vb algorithm")
 
 args = parser$parse_args()
@@ -117,7 +117,8 @@ model_data = stan_input_data(
   use_post_inter=use_post_inter,
   autocor=autocor,
   edges=edges,
-  ar_tight_prior_scale=ar_tight_prior_scale
+  ar_tight_prior_scale=ar_tight_prior_scale,
+  spatial_scale_fixed=spatial_scale_fixed
 )
 saveRDS(model_data, paste0(dir, "/model_data.rds"))
 
