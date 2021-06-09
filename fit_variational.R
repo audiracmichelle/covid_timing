@@ -26,8 +26,10 @@ parser$add_argument("--no_spatial", action="store_false", default=TRUE, dest="sp
     help="Adds an intrinsic spatial ICAR term")
 parser$add_argument("--no_temporal", action="store_false", default=TRUE, dest="temporal",
     help="Adds am intrinsic tempoeral autoregressive term. The autocorrelation is set by --autocor")
-parser$add_argument("--autocor", type="double", default=0.8, 
+parser$add_argument("--autocor", type="double", default=0.7, 
     help="Autocorrelation for intrinsic term. If autocor=1.0 it uses a random walk.")
+parser$add_argument("--spatial_scale", type="double", default=0.0, 
+    help="When positive it fixes the scale of the spatial process. If 0.0 the scale is learned with BYM scaling.")
 parser$add_argument("--no_post_inter", action="store_false", default=TRUE, dest="use_post_inter",
     help="Use interaction variables for post-trend")
 parser$add_argument("--no_pre_inter", action="store_false", default=TRUE, dest="use_pre_inter",
@@ -142,6 +144,8 @@ pars = c(
   "Omega_state_eff",
   "scale_state_eff",
   "scale_rand_eff",
+  "spatial_eff_lin",
+  "spatial_eff_quad",
   "spatial_eff",
   "time_term",
   "spatial_scale",
@@ -154,7 +158,7 @@ fit_vb = rstan::vb(
   model, 
   data=model_data,
   adapt_engaged=FALSE,
-  eta = 0.25,
+  eta = 0.35,
   iter=iter,
   tol_rel_obj=rel_tol,
   init="0",
