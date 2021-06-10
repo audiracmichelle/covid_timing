@@ -102,7 +102,6 @@ transformed parameters {
   matrix[6, 3] nchs_pre = append_col(nchs_pre_lin, nchs_pre_quad);
   matrix[6, 2] nchs_post = append_col(nchs_post_lin, nchs_post_quad);
 
-
   vector[N] rand_eff_term = rows_dot_product(
     rand_eff[county_id, :],  // random effects unfolded
     tpoly_pre
@@ -184,8 +183,8 @@ model {
   for (i in 1:M)
     row(rand_eff, i) ~ multi_normal(state_eff[state_id[i]], Sigma_rand_eff);
   for (j in 1:(order + 1)) {
-    col(state_eff, j) ~ normal(0, 100.0);  // tiny reg
-    col(rand_eff, j) ~ normal(0, 100.0);  // tiny reg
+    col(state_eff, j) ~ normal(0, 10.0);  // tiny reg
+    col(rand_eff, j) ~ normal(0, 10.0);  // tiny reg
   }
 
   //
@@ -195,11 +194,11 @@ model {
       target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale[j]);
     } else {
       target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale_fixed);
-    }
+    }    
     // target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale);
     for (c in 1:N_comps)
       sum(spatial_eff[(cbrks[c] + 1):cbrks[c], j]) ~ normal(0, 0.001 * csizes[c]);
-    col(spatial_eff, j) ~ normal(0, 100.0);  // tiny reg
+    col(spatial_eff, j) ~ normal(0, 10.0);  // tiny reg
   }
 
   //

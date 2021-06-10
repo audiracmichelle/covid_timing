@@ -422,13 +422,13 @@ posterior_predict = function (
   
   if (temporal) {
     time_eff = pars$time_term
-    M = new_data$M
-    brks = new_data$county_brks
-    for (j in 1:M) {
-      start = brks[j] + 1
-      finish = brks[j + 1]
-      time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
-    }
+    # M = new_data$M
+    # brks = new_data$county_brks
+    # for (j in 1:M) {
+    #   start = brks[j] + 1
+    #   finish = brks[j + 1]
+    #   time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
+    # }
     pre_term = pre_term + time_eff
   }
   
