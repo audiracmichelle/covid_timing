@@ -165,7 +165,7 @@ stan_input_data = function(
       X_post_[ ,j] = (X_post_[ ,j] - mu_X_post[j]) / sd_X_post[j]
     X_post = cbind(X_post, X_post_)
   }
-
+  
   X_pre_inter = X_pre
   X_post_inter = X_post
   if (!use_post_inter)
@@ -428,13 +428,13 @@ posterior_predict = function (
   
   if (temporal) {
     time_eff = pars$time_term
-    # M = new_data$M
-    # brks = new_data$county_brks
-    # for (j in 1:M) {
-    #   start = brks[j] + 1
-    #   finish = brks[j + 1]
-    #   time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
-    # }
+    M = new_data$M
+    brks = new_data$county_brks
+    for (j in 1:M) {
+      start = brks[j] + 1
+      finish = brks[j + 1]
+      time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
+    }
     pre_term = pre_term + time_eff
   }
   

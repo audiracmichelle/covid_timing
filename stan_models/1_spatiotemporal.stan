@@ -101,6 +101,7 @@ transformed parameters {
   matrix[6, 3] nchs_pre = append_col(nchs_pre_lin, nchs_pre_quad);
   matrix[6, 2] nchs_post = append_col(nchs_post_lin, nchs_post_quad);
 
+
   vector[N] rand_eff_term = rows_dot_product(
     rand_eff[county_id, :],  // random effects unfolded
     tpoly_pre
@@ -194,7 +195,7 @@ model {
       target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale[j]);
     } else {
       target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale_fixed);
-    }    
+    }
     // target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])) ./ square(spatial_scale);
     for (c in 1:N_comps)
       sum(spatial_eff[(cbrks[c] + 1):cbrks[c], j]) ~ normal(0, 0.001 * csizes[c]);
@@ -264,16 +265,6 @@ model {
   // }
 
 }
-
-generated quantities {
-  vector[N] log_lik;
-  for (n in 1:N) {
-    real rate_ = exp(fmax(fmin(log_rate[n], 12.0), -12.0));
-    real phi_ = fmin(fmax(overdisp, 0.01), 300.0);
-    log_lik[n] = neg_binomial_2_lpmf(y[n] | rate_, phi_);
-  }
-}
-
 
 // generated quantities {
 //   vector[N] log_lik;
