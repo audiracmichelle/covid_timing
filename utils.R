@@ -57,8 +57,8 @@ stan_input_data = function(
     arrange(fips_id, days_since_thresh)
   
   
-  tscale = 100.0
-  t1 = county_train$days_since_thresh / tscale
+  tscale = 0.02   # approx 1/tmax
+  t1 = county_train$days_since_thresh * tscale
   t1_2 = t1^2
   tpoly_pre = cbind(1, t1)
   if (order > 1)
@@ -103,10 +103,12 @@ stan_input_data = function(
   } else if (type[1] == "decrease") {
     days_since_intrv = county_train$days_since_intrv_decrease
     days_btwn = county_train$days_btwn_decrease_thresh
+  } else {
+    print("ERROR: NOT ALLOWED INTERVENTION")
   }
   days_since_intrv[is.na(days_since_intrv)] = -1e6
   
-  t2 = pmax((days_since_intrv - lag) / tscale, 0)
+  t2 = pmax((days_since_intrv - lag) * tscale, 0)
   tpoly_post = matrix(t2, ncol=1)
   if (order > 1)
     for (j in 2:order)
@@ -122,45 +124,55 @@ stan_input_data = function(
     offset_baseline = old_model_data$offset_baseline
   }
   
-  X_pre = as.matrix(county_train[ ,pre_vars])
-  X_pre_inter = as.matrix(county_train[ ,pre_inter_vars])
-
-  X_post_inter = 0.01 * matrix(county_train$days_since_thresh, ncol=1)
-  if (length(post_inter_vars) > 1)
-    X_post_inter = cbind(X_post_inter, as.matrix(county_train[ ,post_inter_vars]))
   
   offset = log(county_train$pop) - mean(log(county_train$pop)) + offset_baseline
-  
-  if (is.null(old_model_data)) {
-    mu_X_pre = apply(X_pre, 2, mean)
-    sd_X_pre = apply(X_pre, 2, sd)
-  } else{
-    mu_X_pre = old_model_data$normalizing_stats$mean
-    sd_X_pre = old_model_data$normalizing_stats$sd
+
+  # normalizeing stats
+  if (!is.null(old_model_data)) {
+    normalizing_stats = old_model_data$normalizing_stats
+  } else {
+    vars = unique(c(pre_vars, post_vars, pre_inter_vars, post_inter_vars))
+    X_vars = as.matrix(county_train[ ,vars])
+    mu_X = apply(X_vars, 2, mean)
+    sd_X = apply(X_vars, 2, sd)
+    normalizing_stats = list(
+      mean=setNames(mu_X, vars),
+      sd=setNames(sd_X, vars)
+    )
   }
+  
+  # if (is.null(old_model_data)) {
+  #   mu_X_pre = apply(X_pre, 2, mean)
+  #   sd_X_pre = apply(X_pre, 2, sd)
+  # } else{
+  #   mu_X_pre = old_model_data$normalizing_stats$mean
+  #   sd_X_pre = old_model_data$normalizing_stats$sd
+  # }
   # print(dim(X_pre))
+  X_pre = as.matrix(county_train[ ,pre_vars])
+  mu_X_pre = normalizing_stats$mean[pre_vars]
+  sd_X_pre = normalizing_stats$sd[pre_vars]
   for (j in 1:ncol(X_pre))
     X_pre[ ,j] = (X_pre[ ,j] - mu_X_pre[j]) / sd_X_pre[j]
-  mu = mu_X_pre
-  sig = sd_X_pre
-  varname = names(mu_X_pre)
-  normalizing_stats = tibble(variable=varname, mean=mu, sd=sig)
+
+  X_post = matrix(days_btwn, ncol=1) * tscale
+  X_post[is.na(X_post), ] = 0.0
+  if (length(post_vars) > 0) {
+    mu_X_post = normalizing_stats$mean[post_vars]
+    sd_X_post = normalizing_stats$sd[post_vars]
+    X_post_ = as.matrix(county_train[ ,post_vars])
+    for (j in 1:ncol(X_post_))
+      X_post_[ ,j] = (X_post_[ ,j] - mu_X_post[j]) / sd_X_post[j]
+    X_post = cbind(X_post, X_post_)
+  }
   
-  X_post = matrix(days_btwn, ncol=1) / tscale
-  X_post[is.na(X_post)] = 0.0
-  X_post = cbind(X_post, as.matrix(county_train[ ,post_vars]))
-  
-  # mu_X_post = apply(X_post, 2, mean)
-  # sd_X_post = apply(X_post, 2, sd)
-  # for (j in 1:ncol(X_post))
-  #   X_post[ ,j] = (X_post[ ,j] - mu_X_post[j]) / sd_X_post[j]
-  # 
-  # mu = c(mu_X_pre, mu_X_post)
-  # sig = c(sd_X_pre, sd_X_post)
-  # varname = c(names(mu_X_pre), names(mu_X_post))
-  # normalizing_stats = tibble(variable=varname, mean=mu, sd=sig)
-  # write_csv(normalizing_stats, "normalizing_stats.csv")
-  
+  X_pre_inter = X_pre
+  X_post_inter = X_post
+  if (!use_post_inter)
+    X_post_inter = X_post[ ,1, drop=FALSE]  # reduce computation since will be ignored
+  if (!use_pre_inter)
+    X_pre_inter = X_pre[, 1, drop=FALSE]  # reduce computation since will be ignored
+
   time_id = as.integer(county_train$days_since_thresh)
   time_id = 1 + time_id - min(time_id)
   Tmax = max(time_id)
@@ -170,8 +182,6 @@ stan_input_data = function(
   if (!("mask" %in% names(county_train)))
     county_train$mask = rep(1, nrow(county_train))
   
-  X_post_inter = X_post
-  X_pre_inter = X_pre
   
   output = list(
     N = nrow(county_train),
@@ -317,7 +327,7 @@ stan_input_data = function(
     output$inv_scaling_factor[is.na(output$inv_scaling_factor)] = 0
     output$scaling_factor = scale_factor$scale_factor
     output$nbrs_eff = nbrs_eff$nbrs_eff
-    output$bym_scaled_edge_weights = output$edge_weights / (0.7 * sqrt(mean_nbrs_eff[output$node1]))
+    output$bym_scaled_edge_weights = output$edge_weights * (0.7 * sqrt(mean_nbrs_eff[output$node1]))
     output
   }
   
@@ -342,6 +352,7 @@ posterior_predict = function (
   lag = model_data$lag
   pre_inter = as.logical(model_data$use_pre_inter)
   post_inter = as.logical(model_data$use_post_inter)
+  tscale = 0.02
   
   parnames = c(
     "nchs_pre",
@@ -450,7 +461,7 @@ posterior_predict = function (
     lag = 11 + 5 * np$expand_dims(pars$lag_unc, 1L)
     days_since_intrv_ = np$expand_dims(new_data$days_since_intrv, 0L)
     days_since_intrv_ = as.array(np$add(- lag, days_since_intrv_))
-    days_since_intrv_ = 0.01 * pmax(days_since_intrv_, 0)
+    days_since_intrv_ = tscale * pmax(days_since_intrv_, 0)
     tpoly_post = array(days_since_intrv_, dim=c(nsamples, N, 1))
     if (order > 1)
       for (j in 2:order)
@@ -458,9 +469,9 @@ posterior_predict = function (
   } else if (cable_bent) {
     lag = 11 + 5 * np$expand_dims(pars$lag_unc, 1L)
     duration = pars$duration_unc
-    tau = 0.01 * np$expand_dims(lag, 1L)
-    gam = 0.01 * np$expand_dims(duration, 1L)
-    t_ = 0.01 * np$expand_dims(new_data$days_since_intrv, 0L)
+    tau = tscale * np$expand_dims(lag, 1L)
+    gam = tscale * np$expand_dims(duration, 1L)
+    t_ = tscale * np$expand_dims(new_data$days_since_intrv, 0L)
     # transition
     aux1 = np$square(np$maximum(0, np$add(t_, -tau +  gam)))
     aux1 = 0.25 * np$divide(aux1, gam)
@@ -495,7 +506,7 @@ posterior_predict = function (
   if (post_inter) {
     days_since_intrv_ = np$expand_dims(new_data$days_since_intrv, 0L)
     days_since_intrv_ = as.array(np$add(- lag, days_since_intrv_))
-    days_since_intrv_ = 0.01 * pmax(days_since_intrv_, 0)
+    days_since_intrv_ = tscale * pmax(days_since_intrv_, 0)
     X_post_inter = new_data$X_post_inter
     X_post_inter = np$expand_dims(X_post_inter, 0L)
     X_post_inter = np$expand_dims(X_post_inter, 3L)
@@ -517,7 +528,7 @@ posterior_predict = function (
     beta_covars_pre_inter1 =  np$expand_dims(pars$beta_covars_pre_inter[, new_data$nchs_id, (D_inter + 1):(2 * D_inter), drop=FALSE], -1L)
     beta_covars_pre_inter2 =  np$expand_dims(pars$beta_covars_pre_inter[, new_data$nchs_id, (2 * D_inter + 1):(3 * D_inter), drop=FALSE], -1L)
    
-     pre_inter_term0 = np$sum(np$multiply(beta_covars_pre_inter0, X_pre_inter), 2L)[ , , 1]
+    pre_inter_term0 = np$sum(np$multiply(beta_covars_pre_inter0, X_pre_inter), 2L)[ , , 1]
     
     t1 = np$expand_dims(new_data$tpoly_pre[ , 2], 0L)
     pre_inter_term1 = np$sum(np$multiply(beta_covars_pre_inter1, X_pre_inter), 2L)[ , , 1]
