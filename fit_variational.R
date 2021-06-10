@@ -99,10 +99,7 @@ if (exclude_ny) {
     }
 }
 
-edges = read_csv("data/fips_adjacency.csv") %>% 
-  # filter(isnbr) %>%
-  filter(dist <= 200) %>%
-  filter(src_lab %in% valid_fips, tgt_lab %in% valid_fips)
+edges = read_csv("data/edges_with_knn2_filt500.csv")
 
 model_data = stan_input_data(
   county_train,
@@ -159,7 +156,7 @@ fit_vb = rstan::vb(
   model, 
   data=model_data,
   adapt_engaged=FALSE,
-  eta = 0.35,
+  eta = 0.25,
   iter=iter,
   tol_rel_obj=rel_tol,
   init="0",

@@ -2,12 +2,12 @@
 
 #SBATCH -J variational
 #SBATCH -N 1
-#SBATCH -n 12
+#SBATCH -n 10
 #SBATCH --cpus-per-task 4
 #SBATCH -p skx-normal
 #SBATCH -o variational.%j.out
 #SBATCH -e variational.%j.err
-#SBATCH -t 3:59:00
+#SBATCH -t 4:29:00
 #SBATCH -A A-ib1
 
 

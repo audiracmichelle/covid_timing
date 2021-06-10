@@ -145,6 +145,8 @@ pars = c(
   "state_eff_lin",
   "state_eff_quad",
   "state_eff",
+  "spatial_eff_lin",
+  "spatial_eff_quad",
   "spatial_eff",
   "time_term",
   "Omega_rand_eff",
