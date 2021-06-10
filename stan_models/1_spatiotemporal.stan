@@ -46,6 +46,7 @@ data {
   int<lower=1,upper=N> ar_edges1[N - M];
   int<lower=1,upper=N> ar_edges2[N - M];
   int<lower=1,upper=N> ar_starts[M];
+  // int<lower=1,upper=N> ar_ends[M];
   int<lower=0,upper=N> county_brks[M + 1];
   int<lower=0,upper=N> county_lens[M];
   // real spatial_scale;
@@ -154,14 +155,14 @@ model {
   // parameter priors
   overdisp ~ exponential(1.0);
   // scale_rand_eff ~ normal(0, 1.0 / 17.0);
-  scale_rand_eff ~ normal(0, 1.0);
-  Omega_rand_eff ~ lkj_corr(2.0);
+  scale_rand_eff ~ normal(0, 0.5);
+  Omega_rand_eff ~ lkj_corr(1.1);
   scale_state_eff ~ normal(0, 10.0);
-  Omega_state_eff ~ lkj_corr(2.0);
+  Omega_state_eff ~ lkj_corr(1.1);
   // scale_state_eff ~ normal(0, 1.0);
   // spatial
   // spatial_scale ~ normal(0.0, 2.0 / 17.0);
-  spatial_scale ~ normal(0.0, 1.0);
+  spatial_scale ~ normal(0.0, 0.5);
   // spatial_scale ~ normal(0.0, 0.001);
 
   to_vector(beta_covars_pre) ~ normal(0, 10.0);
@@ -228,11 +229,7 @@ model {
   }
   else {
     y[mask_obs] ~ neg_binomial_2(exp(log_rate[mask_obs]) + 1e-8, overdisp);
-    if (autocor < 1.0) {
-      time_term[mask_miss] ~ normal(0, 0.1 * ar_scale / sqrt(1.0 - square(autocor))); // this ones aren't observed
-    } else {
-      time_term[mask_miss] ~ normal(0, 0.1 * ar_scale); // this ones aren't observed
-    }
+    time_term[mask_miss] ~ normal(0, 0.01); // this ones aren't observed
   }
 
 

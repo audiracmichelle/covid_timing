@@ -78,16 +78,19 @@ stan_input_data = function(
   ar_edges1 = c()
   ar_edges2 = c()
   ar_starts = 1
+  ar_ends = c()
   for (i in 2:length(t)) {
     if (fips[i - 1] == fips[i]) {
       ar_edges1[k] = i
       ar_edges2[k] = i - 1
       k = k + 1
     } else{
+      ar_ends[k_ - 1] = i
       ar_starts[k_] = i
       k_ = k_ + 1
     }
   }
+  ar_ends[k_] = length(t)
   
   tm1_pointer = fips_t_index[fips_tm1]
   tm1_pointer[is.na(tm1_pointer)] = 0
@@ -327,7 +330,7 @@ stan_input_data = function(
     output$inv_scaling_factor[is.na(output$inv_scaling_factor)] = 0
     output$scaling_factor = scale_factor$scale_factor
     output$nbrs_eff = nbrs_eff$nbrs_eff
-    output$bym_scaled_edge_weights = output$edge_weights * (0.7 * sqrt(mean_nbrs_eff[output$node1]))
+    output$bym_scaled_edge_weights = output$edge_weights * (0.7 * sqrt(mean_nbrs[output$node1]))
     output
   }
   
