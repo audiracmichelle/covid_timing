@@ -65,8 +65,8 @@ stan_input_data = function(
     mutate(fips_id = as.integer(fips_f)) %>% 
     mutate(state_f = factor(state, levels=states_ids)) %>% 
     mutate(state_id = as.integer(state_f)) %>% 
-    arrange(fips_id, days_since_thresh) %>%
-    group_by(fips_id)
+    arrange(fips_id, days_since_thresh) # %>%
+    # group_by(fips_id)
 
   all_zeros = county_train %>%
     group_by(fips_id) %>%
@@ -478,7 +478,6 @@ posterior_predict = function (
   )
   if (rand_eff)
     pre_term = pre_term + rand_eff_term
-
   
   X_pre = new_data$X_pre
   X_pre = np$expand_dims(X_pre, 0L)
@@ -487,10 +486,10 @@ posterior_predict = function (
   covar_baseline_pre = np$sum(np$multiply(X_pre, beta_covars_pre), -2L)
   nchs_pre_unrolled = np$array(pars$nchs_pre[ ,new_data$nchs_id, ])
   baseline_pre = np$expand_dims(pars$baseline_pre, 1L)
-  baseline_pre = np$add(np$add(baseline_pre, nchs_pre_unrolled), covar_baseline_pre)
-  baseline_pre = np$sum(np$multiply(baseline_pre, tpoly_pre), -1L)
-  
-  pre_term = pre_term + baseline_pre
+  # baseline_pre = (1.0 - spatial) * np$expand_dims(pars$baseline_pre, 1L)
+  pre = np$add(np$add(baseline_pre, nchs_pre_unrolled), covar_baseline_pre)
+  pre = np$sum(np$multiply(pre, tpoly_pre), -1L)
+  pre_term = pre_term + pre
   
   if (temporal) {
     # time_eff = pars$time_term
