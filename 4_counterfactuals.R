@@ -1,0 +1,197 @@
+library(tidyverse)
+library(magrittr)
+library(feather)
+library(gridExtra)
+library(cowplot)
+library(reshape2)
+library(rstan)
+library(argparse)
+options(mc.cores = 4)
+source("./utils.R")
+
+
+parser = ArgumentParser()
+parser$add_argument("--dir", type="character", default="100k_ar1", 
+    help="Directory where results where saved")
+parser$add_argument("--shift_days", type="integer", default=10, 
+    help="How much to shift up and down.")
+
+
+args = parser$parse_args()
+for (i in 1:length(args)) {
+    varname = names(args)[i]
+    value = args[[i]]
+    if (varname == "dir")
+        value = paste0("results/", value)
+    assign(varname, value, envir = .GlobalEnv)
+}
+# dir.create(paste0(dir, "/counterfactuals"), recursive=TRUE)
+
+fit = read_rds(sprintf("%s/fit.rds", dir))
+model_data = read_rds(sprintf("%s/model_data.rds", dir))
+
+
+bent_cable=model_data$bent_cable
+rand_eff=TRUE
+states=TRUE
+spatial=model_data$spatial
+
+up = shift_days
+down = -shift_days
+intervention = model_data$type
+
+evaldata = read_feather("data/county_train_.feather") %>%   # 1454 counties
+  filter(fips %in% levels(model_data$df$fips_f)) %>%   # 1021 counties
+  filter(days_since_thresh <= 30) %>% 
+  mutate(interv_type = .env$intervention) %>%
+  mutate(days_since_intrv = if_else(interv_type == "decrease", days_since_intrv_decrease, days_since_intrv_stayhome)) %>%
+  mutate(days_btwn = if_else(interv_type == "decrease", days_btwn_decrease_thresh, days_btwn_stayhome_thresh)) %>%
+  group_by(fips) %>% 
+  filter(
+    max(days_since_thresh) >= 7,
+    max(y) >= 1  # for evaluation max(cum_deaths >= 1) is not a good idea cause there are tons of zeros
+  ) %>%  
+  ungroup()
+
+# evaldata = model_data$df
+
+county_fit_posterior = posterior_predict(
+  fit,
+  model_data,
+  new_df=evaldata,
+  rand_eff=rand_eff,
+  bent_cable=bent_cable,
+  states=states,
+  spatial=spatial,
+  temporal=FALSE
+)
+yhat_no_rand_eff = exp(county_fit_posterior$log_yhat) # / exp( county_fit_posterior$rand_eff)
+county_fit = yhat_no_rand_eff %>% 
+  melt() %>% 
+  `names<-`(c("sim", "row", "yhat")) %>% 
+  left_join(
+    select(
+      mutate(evaldata, row=1:n()),
+      row, nchs, days_since_thresh, days_since_intrv, pop
+    )
+  ) %>% 
+  mutate(yhat = 1e6 * yhat/pop)
+
+county_fit_posterior_down = posterior_predict(
+  fit,
+  model_data,
+  new_df=evaldata,
+  rand_eff=rand_eff,
+  states=states,
+  spatial=spatial,
+  bent_cable=bent_cable,
+  shift_timing=-shift_days,
+  temporal=FALSE
+)
+yhat_no_rand_eff = exp(county_fit_posterior_down$log_yhat) # / exp(county_fit_posterior$rand_eff)
+county_fit_down = yhat_no_rand_eff %>% 
+  melt() %>% 
+  `names<-`(c("sim", "row", "yhat")) %>% 
+  left_join(
+    select(
+      mutate(evaldata, row=1:n(), days_since_intrv=days_since_intrv - down),
+      row, nchs, days_since_thresh, days_since_intrv, pop
+    )
+  )  %>% 
+  mutate(yhat =1e6 *  yhat/pop)
+
+county_fit_posterior_up = posterior_predict(
+  fit,
+  model_data,
+  new_df=evaldata,
+  rand_eff=rand_eff,
+  states=states,
+  spatial=spatial,
+  bent_cable=bent_cable,
+  temporal=FALSE,
+  shift_timing=shift_days
+)
+yhat_no_rand_eff = exp(county_fit_posterior_up$log_yhat)
+county_fit_up = yhat_no_rand_eff %>% 
+  melt() %>% 
+  `names<-`(c("sim", "row", "yhat")) %>% 
+  left_join(
+    select(
+      mutate(evaldata, row=1:n(), days_since_intrv=days_since_intrv - up),
+      row, nchs, days_since_thresh, days_since_intrv, pop
+    )
+  )  %>% 
+  mutate(yhat = 1e6 * yhat/pop)
+
+county_decrease = county_fit %>%
+  group_by(nchs, sim, days_since_thresh) %>%
+  summarize(yhat = median(yhat), .groups="drop") %>% 
+  mutate(log_yhat=log(yhat)) %>% 
+  group_by(nchs, days_since_thresh) %>% 
+  summarize(
+    fit_mu = mean(yhat),
+    fit_med = median(yhat), # use posterior median to hand skewness
+    fit_lo = quantile(yhat, 0.05),
+    fit_hi = quantile(yhat, 0.95),
+    .groups="drop"
+  ) %>% 
+  mutate(type="actual")
+
+county_decrease_up = county_fit_up %>%
+  group_by(nchs, sim, days_since_thresh) %>%
+  summarize(yhat = median(yhat), .groups="drop") %>% 
+  mutate(log_yhat=log(yhat)) %>% 
+  group_by(nchs, days_since_thresh) %>% 
+  summarize(
+    fit_mu = mean(yhat),
+    fit_med = median(yhat), # use posterior median to hand skewness
+    fit_lo = quantile(yhat, 0.05),
+    fit_hi = quantile(yhat, 0.95),
+    .groups="drop"
+  ) %>% 
+  mutate(type="late")
+
+county_decrease_down = county_fit_down  %>%
+  group_by(nchs, sim, days_since_thresh) %>%
+  summarize(yhat = median(yhat), .groups="drop") %>% 
+  mutate(log_yhat=log(yhat)) %>% 
+  group_by(nchs, days_since_thresh) %>% 
+  summarize(
+    fit_mu = mean(yhat),
+    fit_med = median(yhat), # use posterior median to hand skewness
+    fit_lo = quantile(yhat, 0.05),
+    fit_hi = quantile(yhat, 0.95),
+    .groups="drop"
+  ) %>%
+  mutate(type="early")
+
+  plotdata = bind_rows(
+  county_decrease,
+  county_decrease_up,
+  county_decrease_down
+) %>% 
+  filter(days_since_thresh <= 30)
+
+uplim = 30
+dolim = 0.01
+lagat = 14
+ggplot(plotdata) +
+  geom_line(aes(x=days_since_thresh, y=pmax(dolim, pmin(fit_med, uplim)), color=type), lwd=1) +
+#   geom_vline(aes(xintercept=days_btwn_decrease_thresh + lagat), data=interv_day, lty=2) +
+  geom_ribbon(aes(x=days_since_thresh, ymax=pmax(dolim, pmin(fit_hi, uplim)), ymin=pmax(dolim, pmin(fit_lo, uplim)), fill=type), alpha=0.4) +
+  scale_y_log10() +
+  # facet_wrap(~ paste("NCHS", nchs)) +
+  facet_wrap(~ paste("NCHS", nchs), scales = "free_y") +
+    guides(color=FALSE) +
+  # scale_y_continuous(
+  #   limits=c(-5.5, 2.2),
+  #   breaks=c(-1, 0, 1),
+  #   labels=c("0.1", "1", "10")
+  # ) +
+  theme_minimal_hgrid() +
+  scale_color_manual(values=c("#0072B2", "#009E73", "#D55E00")) +
+  scale_fill_manual(values=c("#0072B2", "#009E73", "#D55E00")) +
+  theme(legend.position = "top") +
+  labs(fill="", y = "Deaths per 1 million", x="Days since threshold deaths")
+
+ggsave(sprintf("%s/counterfactuals.pdf", dir), width=8,height=4,units="in")

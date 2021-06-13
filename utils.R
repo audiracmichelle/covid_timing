@@ -11,24 +11,27 @@ nbinom = scipy_stats$nbinom
 
 stan_input_data = function(
   county_train,
+  old_model_data=NULL,
   type=c("stayhome", "decrease"),
   lag=14,
   order=2,
-  use_mask=FALSE,
+  use_mask=0,
   edges=NULL,
   ar_scale=0.25, 
-  old_model_data=NULL,
-  all_post=FALSE,  # it's a legacy shortcut, should be removed
-  pre_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
-  post_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
-  pre_inter_vars = c("college", "age_65_plus", "black", "hispanic", "popdensity"),
+  pre_vars = c("college", "age_65_plus", "black", "hispanic"),
+  post_vars = c("college", "age_65_plus", "black", "hispanic"),
+  pre_inter_vars = c("college", "age_65_plus", "black", "hispanic"),
   post_inter_vars = c(),
   use_post_inter = FALSE,
   use_pre_inter = TRUE,
-  spatial_scale_fixed = 1.0,
+  spatial_scale_fixed = 0.0,
+  ar_scale_fixed = 0.0,
   autocor=0.7,
   k_nbrs=2,
-  ar_tight_prior_scale=FALSE
+  ar_tight_prior_scale=FALSE,
+  bent_cable=FALSE,
+  spatial=TRUE,
+  temporal=TRUE
 ) {
   
   if (is.null(old_model_data)) {
@@ -45,19 +48,35 @@ stan_input_data = function(
     pre_vars = old_model_data$pre_vars
     post_vars = old_model_data$post_vars
     spatial_scale_fixed = old_model_data$spatial_scale_fixed
+    ar_scale_fixed = old_model_data$ar_scale_fixed
     ar_scale = old_model_data$ar_scale
     autocor = old_model_data$autocor
+    type = old_model_data$type
+    order = old_model_data$order
+    edges = old_model_data$edges
+    bent_cable = old_model_data$bent_cable
   }
   
+  if (!is.null(bent_cable) && bent_cable)
+    lag = 0
+
   county_train = county_train %>%
     mutate(fips_f = factor(fips, levels=fips_ids)) %>% 
     mutate(fips_id = as.integer(fips_f)) %>% 
     mutate(state_f = factor(state, levels=states_ids)) %>% 
     mutate(state_id = as.integer(state_f)) %>% 
-    arrange(fips_id, days_since_thresh)
+    arrange(fips_id, days_since_thresh) %>%
+    group_by(fips_id)
+
+  all_zeros = county_train %>%
+    group_by(fips_id) %>%
+    summarize(ysum = sum(y), .groups="drop") %>%
+    mutate(all_zeros = sum(ysum)) %>%
+    arrange(fips_id) %>%
+    pull(all_zeros)
   
   
-  tscale = 0.02   # approx 1/tmax
+  tscale = 0.01  #   # option 1: approx 2 /tmax and tmax  ~= 50,  legacy : 0.01
   t1 = county_train$days_since_thresh * tscale
   t1_2 = t1^2
   tpoly_pre = cbind(1, t1)
@@ -109,7 +128,8 @@ stan_input_data = function(
   } else {
     print("ERROR: NOT ALLOWED INTERVENTION")
   }
-  days_since_intrv[is.na(days_since_intrv)] = -1e6
+  days_since_intrv[is.na(days_since_intrv)] = -100
+  days_btwn[is.na(days_btwn)] = -100
   
   t2 = pmax((days_since_intrv - lag) * tscale, 0)
   tpoly_post = matrix(t2, ncol=1)
@@ -142,6 +162,13 @@ stan_input_data = function(
       mean=setNames(mu_X, vars),
       sd=setNames(sd_X, vars)
     )
+    # exclude from days between cases with no intervention and compute stats
+    dbtwn_stats = tibble(fips=fips_id, days_btwn=days_btwn) %>% 
+      distinct() %>%
+      filter(days_btwn > -100) %>% 
+      summarize(mean=mean(days_btwn), sd=sd(days_btwn))
+    normalizing_stats$mean["days_btwn"] = dbtwn_stats$mean
+    normalizing_stats$sd["days_btwn"] = dbtwn_stats$sd
   }
   
   # if (is.null(old_model_data)) {
@@ -158,17 +185,20 @@ stan_input_data = function(
   for (j in 1:ncol(X_pre))
     X_pre[ ,j] = (X_pre[ ,j] - mu_X_pre[j]) / sd_X_pre[j]
 
-  X_post = matrix(days_btwn, ncol=1) * tscale
+  X_post = matrix(days_btwn, ncol=1)
   X_post[is.na(X_post), ] = 0.0
-  if (length(post_vars) > 0) {
-    mu_X_post = normalizing_stats$mean[post_vars]
-    sd_X_post = normalizing_stats$sd[post_vars]
-    X_post_ = as.matrix(county_train[ ,post_vars])
-    for (j in 1:ncol(X_post_))
-      X_post_[ ,j] = (X_post_[ ,j] - mu_X_post[j]) / sd_X_post[j]
-    X_post = cbind(X_post, X_post_)
+  if (length(post_vars) > 0)
+    X_post = cbind(X_post, as.matrix(county_train[ ,post_vars]))
+  mu_X_post = normalizing_stats$mean[c("days_btwn", post_vars)]
+  sd_X_post = normalizing_stats$sd[c("days_btwn", post_vars)]
+  for (j in 1:ncol(X_post)) {
+    # if (j == 1) {
+    #   X_post[ ,j] = 0.02 * X_post[ ,j]   # for old models needs this line
+    #   next
+    # }
+    X_post[ ,j] = (X_post[ ,j] - mu_X_post[j]) / sd_X_post[j]
   }
-  
+
   X_pre_inter = X_pre
   X_post_inter = X_post
   if (!use_post_inter)
@@ -185,16 +215,20 @@ stan_input_data = function(
   if (!("mask" %in% names(county_train)))
     county_train$mask = rep(1, nrow(county_train))
   
-  
+  M = length(fips)
+  N = nrow(county_train)
   output = list(
-    N = nrow(county_train),
+    spatial=spatial,
+    temporal=temporal,
+    bent_cable=bent_cable,
+    N = N,
     D_pre = ncol(X_pre),
     D_pre_inter = ncol(X_pre_inter),
     D_post = ncol(X_post),
     D_post_inter = ncol(X_post_inter),
     fips_ids=fips_ids,
     states_ids=states_ids,
-    M = length(fips),
+    M = M,
     N_states = length(states_ids),
     X_pre = X_pre,
     X_pre_inter = X_pre_inter,
@@ -204,6 +238,7 @@ stan_input_data = function(
     offset_baseline=offset_baseline,
     tpoly_pre = tpoly_pre,
     days_since_intrv=days_since_intrv,
+    days_btwn = days_btwn,
     y = y,
     tpoly_post=tpoly_post,
     time_id = time_id,
@@ -220,11 +255,12 @@ stan_input_data = function(
     state_id = county_train$state_id,
     normalizing_stats=normalizing_stats,
     tm1_index=tm1_pointer,
-    county_brks=county_brks,
-    county_lens=table(fips_id),
+    county_brks=c(which(county_train$index == 1) - 1, N),
+    county_lens=c(which(county_train$index == 1)[-1], N + 1) - which(county_train$index == 1),
     ar_edges1=ar_edges1,
     ar_edges2=ar_edges2,
-    ar_starts=ar_starts,
+    ar_starts=which(county_train$index == 1),
+    ar_ends=c(which(county_train$index == 1)[-1] - 1, N),
     ar_tight_prior_scale=as.integer(ar_tight_prior_scale),
     lag=lag,
     df=county_train,
@@ -239,7 +275,10 @@ stan_input_data = function(
     pre_inter_vars=pre_inter_vars,
     post_inter_vars=post_inter_vars,
     spatial_scale_fixed=spatial_scale_fixed,
-    autocor=autocor
+    ar_scale_fixed=ar_scale_fixed,
+    autocor=autocor,
+    tscale=tscale,
+    fips_non_zero=1.0 - as.numeric(all_zeros)
   )
   
   if (!is.null(edges)) {
@@ -281,19 +320,24 @@ stan_input_data = function(
     output$N_edges = nrow(edges_)
     output$edge_weights = edges_$wts
     comps = components(g)
-    output$csizes = comps$csize
-    output$csorted = fips2id[names(comps$membership)]
+    # output$csorted = fips2id[sort(comps$membership)]
+    # output$csizes = comps$csize[(comps$membership)]
     atleast2 = output$n_nbrs > 2
     output$node1 = fips2id[edges_$src_lab]
     output$node2 = fips2id[edges_$tgt_lab]
-    # 
-    output$cmemb = county_train %>%
-      left_join(
-        tibble(fips=names(comps$membership), cmemb=comps$membership)
-      ) %>%
-      pull(cmemb)
+    #
+    output$membership = comps$membership
+    cmemb = tibble(fips=names(comps$membership), cmemb=comps$membership) %>%
+      group_by(cmemb) %>%
+      summarize(fips=paste(fips, collapse=" "), csizes=n())
+    output$csizes = cmemb$csizes
+    csorted = c()
+    for (j in 1:nrow(cmemb))
+      csorted = c(csorted, strsplit(cmemb$fips[j], " ")[[1]])
+    output$csorted = fips2id[csorted]
     output$N_comps = comps$no
-    output$cbrks = c(0, cumsum(comps$csize))
+    output$N_nonzero_comps = sum(cmemb$csizes > 1)
+    output$cbrks = c(0, cumsum(output$csizes))
 
     nbrs_eff = edges_ %>%
       mutate(tmp=src_lab, src_lab=tgt_lab, tgt_lab=tmp) %>%
@@ -330,11 +374,21 @@ stan_input_data = function(
     output$inv_scaling_factor[is.na(output$inv_scaling_factor)] = 0
     output$scaling_factor = scale_factor$scale_factor
     output$nbrs_eff = nbrs_eff$nbrs_eff
-    output$bym_scaled_edge_weights = output$edge_weights * (0.7 * sqrt(mean_nbrs[output$node1]))
+    output$bym_scaled_edge_weights = output$edge_weights / (0.7 * sqrt(mean_nbrs[output$node1]))
     output
   }
   
   output
+}
+
+center_series = function(x, M, N, brks, lens, index) {
+    centered = numeric(N)
+    for (j in 1:M) {
+      tj_mean = sum(x[index[(brks[j] + 1):(brks[j + 1])]]) / lens[j]
+      for (i in (brks[j] + 1):(brks[j + 1]))
+        centered[index[i]] = x[index[i]] - tj_mean
+    }
+    return(centered)
 }
 
 # posterior predicts outputs the predicted deathss
@@ -347,15 +401,17 @@ posterior_predict = function (
   spatial=FALSE,
   rand_lag=FALSE,
   temporal=FALSE,
-  cable_bent=FALSE,
+  bent_cable=FALSE,
   shift_timing=0
 ) {
   type = model_data$type
   order = model_data$order
   lag = model_data$lag
+  bent_cable = ifelse(is.null(model_data$bent_cable), bent_cable, model_data$bent_cable)
+  tscale = ifelse(is.null(model_data$tscale), 0.01, model_data$tscale)  # for backward comp
+
   pre_inter = as.logical(model_data$use_pre_inter)
   post_inter = as.logical(model_data$use_post_inter)
-  tscale = 0.02
   
   parnames = c(
     "nchs_pre",
@@ -366,14 +422,16 @@ posterior_predict = function (
     "baseline_post",
     "overdisp",
     "rand_eff",
-    "scale_rand_eff"
+    "scale_rand_eff",
+    "spatial_scale",
+    "scale_state_eff"
   )
   
   if (spatial)
     parnames = c(parnames, "spatial_eff")
   if (rand_lag)
     parnames = c(parnames, "lag_unc")
-  if (cable_bent)
+  if (bent_cable)
     parnames = c(parnames, c("lag_unc", "duration_unc"))
   if (states)
     parnames = c(parnames, "state_eff")
@@ -397,24 +455,30 @@ posterior_predict = function (
   # instead of calling input data gain
   # we could just recompute tpoly post down
   # as it is done for rand and cable bent already
-  new_data = stan_input_data(
-    new_df,
-    type,
-    edges=model_data$edges,
-    old_model_data = model_data
-  )
+  new_data = stan_input_data(new_df, old_model_data=model_data)
   
   pars = rstan::extract(fit, pars=parnames)
   N = nrow(new_df)
   nsamples = nrow(pars$nchs_pre)
+
+  offset_ = t(matrix(rep(new_data$offset, times=nsamples), ncol=nsamples))
+  pre_term = offset_
   
   # check compatible size of new data and previous
   tpoly_pre = np$expand_dims(new_data$tpoly_pre, 0L)
-  rand_eff_unrolled = np$array(pars$rand_eff[ ,new_data$county_id, ])
-  
+
+  rand_effs = pars$rand_eff
+  scale = pars$scale_rand_eff
+  for (j in 1:3)
+    for (k in 1:new_data$M)
+      rand_effs[ , k, j] = rand_effs[ , k, j] * scale[ , j]
+  rand_eff_unrolled = np$array(rand_effs[ ,new_data$county_id, ])
   rand_eff_term = np$sum(
     np$multiply(tpoly_pre, rand_eff_unrolled), -1L
   )
+  if (rand_eff)
+    pre_term = pre_term + rand_eff_term
+
   
   X_pre = new_data$X_pre
   X_pre = np$expand_dims(X_pre, 0L)
@@ -423,26 +487,37 @@ posterior_predict = function (
   covar_baseline_pre = np$sum(np$multiply(X_pre, beta_covars_pre), -2L)
   nchs_pre_unrolled = np$array(pars$nchs_pre[ ,new_data$nchs_id, ])
   baseline_pre = np$expand_dims(pars$baseline_pre, 1L)
-  pre_term = np$add(np$add(baseline_pre, nchs_pre_unrolled), covar_baseline_pre)
-  pre_term = np$sum(np$multiply(pre_term, tpoly_pre), -1L)
-  offset_ = t(matrix(rep(new_data$offset, times=nsamples), ncol=nsamples))
+  baseline_pre = np$add(np$add(baseline_pre, nchs_pre_unrolled), covar_baseline_pre)
+  baseline_pre = np$sum(np$multiply(baseline_pre, tpoly_pre), -1L)
   
-  pre_term = pre_term + offset_
+  pre_term = pre_term + baseline_pre
   
   if (temporal) {
-    time_eff = pars$time_term
-    M = new_data$M
-    brks = new_data$county_brks
-    for (j in 1:M) {
-      start = brks[j] + 1
-      finish = brks[j + 1]
-      time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
-    }
-    pre_term = pre_term + time_eff
+    # time_eff = pars$time_term
+    # time_eff = t(apply(
+    #   pars$time_term, 1, center_series,
+    #   new_data$M, new_data$N, new_data$county_brks,
+    #   new_data$county_lens, 1:new_data$N
+    # ))
+    # print(dim(pars$time_term))
+    # print(dim(time_eff))
+    # M = new_data$M
+    # brks = new_data$county_brks
+    # for (j in 1:M) {
+    #   start = brks[j] + 1
+    #   finish = brks[j + 1]
+    #   time_eff[ ,start] = - apply(time_eff[ ,(start + 1):finish], 1, sum)
+    # }
+    pre_term = pre_term + pars$time_term
   }
   
   if (states) {
-    state_eff_unrolled = np$array(pars$state_eff[ ,new_data$state_id, ])
+    state_eff = pars$state_eff
+    scale = pars$scale_state_eff
+    for (j in 1:3)
+      for (k in 1:new_data$N_states)
+        state_eff[ , k, j] = state_eff[ , k, j] * scale[ , j]
+    state_eff_unrolled = np$array(state_eff[ ,new_data$state_id, ])
     state_eff_term = np$sum(
       np$multiply(tpoly_pre, state_eff_unrolled), -1L
     )
@@ -450,8 +525,13 @@ posterior_predict = function (
   }
   
   if (spatial) {
+    spatial_eff = pars$spatial_eff
+    scale = pars$spatial_scale
+    for (j in 1:3)
+      for (k in 1:new_data$M)
+        spatial_eff[ , k, j] = spatial_eff[ , k, j] * scale[ , j]
     tpoly_pre = np$expand_dims(new_data$tpoly_pre, 0L)
-    spatial_eff_unrolled = np$array(pars$spatial_eff[ ,new_data$county_id, ])
+    spatial_eff_unrolled = np$array(spatial_eff[ ,new_data$county_id, ])
     spatial_eff_term = np$sum(
       np$multiply(tpoly_pre, spatial_eff_unrolled), -1L
     )
@@ -469,9 +549,9 @@ posterior_predict = function (
     if (order > 1)
       for (j in 2:order)
         tpoly_post = np$array(abind::abind(tpoly_post, days_since_intrv_^j, along=3))
-  } else if (cable_bent) {
-    lag = 11 + 5 * np$expand_dims(pars$lag_unc, 1L)
-    duration = pars$duration_unc
+  } else if (bent_cable) {
+    lag = 11.0 + 6.0 * pars$lag_unc
+    duration = 6.0 * pars$duration_unc
     tau = tscale * np$expand_dims(lag, 1L)
     gam = tscale * np$expand_dims(duration, 1L)
     t_ = tscale * np$expand_dims(new_data$days_since_intrv, 0L)
@@ -484,7 +564,6 @@ posterior_predict = function (
     linear = linear1 + linear2
     quad = np$square(np$maximum(0, np$add(t_, - tau - gam)))
     tpoly_post = np$stack(list(linear, quad), -1L)
-    
   } else {
     tpoly_post = np$expand_dims(new_data$tpoly_post, 0L)
   }
@@ -545,8 +624,6 @@ posterior_predict = function (
   }
   
   log_rate = pre_term + post_term
-  if (rand_eff)
-    log_rate = log_rate + rand_eff_term
   rate = exp(log_rate)
   overdisp = matrix(pars$overdisp, nrow=nsamples, ncol=N)
   var = rate + rate ^ 2 / overdisp
