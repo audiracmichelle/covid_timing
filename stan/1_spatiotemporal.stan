@@ -197,7 +197,8 @@ transformed parameters {
   vector[N] pre_term = rows_dot_product(
     (
       + X_pre * beta_covars_pre  // interaction with covariates pre-interv
-      + (1.0 - spatial) * rep_matrix(baseline_pre, N)
+      // + (1.0 - spatial) * rep_matrix(baseline_pre, N)
+      + rep_matrix(baseline_pre, N)
       + nchs_pre[nchs_id, :]
     ),
     tpoly_pre
@@ -282,7 +283,7 @@ model {
     // fixing one element to zero is enough for identifiability
     // col(spatial_eff, j) ~ normal(0, 10.0);  // tiny reg
   }
-
+ 
   // for (c in 1:N_comps) {
   //   sum(spatial_eff[csorted[(cbrks[c] + 1):(cbrks[c + 1])], 1]) ~ normal(0, 0.001 * csizes[c]);
   //   sum(spatial_eff[csorted[(cbrks[c] + 1):(cbrks[c + 1])], 2]) ~ normal(0, 0.001 * csizes[c]);

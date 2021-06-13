@@ -97,7 +97,7 @@ res_plots <- marrangeGrob(res_plots,
                           nrow = 8, ncol = 2, 
                           left = "", top = "")
 
-ggsave(sprintf('%s/residuals/res_plots.pdf', dir), res_plots, width = 15, height = 25, units = "cm")
+ggsave(sprintf('%s/residuals/res_plots.pdf', dir), res_plots, width = 8 height = 8 units = "in")
 
 
 res_rel_plots <- list()
@@ -126,7 +126,7 @@ res_rel_plots <- marrangeGrob(res_rel_plots,
                           nrow = 8, ncol = 2, 
                           left = "", top = "")
 
-ggsave(sprintf('%s/residuals/res_rel_plots.pdf', dir),res_rel_plots, width = 15, height = 25, units = "cm")
+ggsave(sprintf('%s/residuals/res_rel_plots.pdf', dir),res_rel_plots, width = 8 height = 8 units = "in")
 
 
 distmat_raw = read_rds("data/OD.rds")
@@ -162,7 +162,7 @@ moransI %>%
   geom_line(aes(x=t, y=value)) +
   facet_wrap(~name, scales = "free", ncol=1) +
   theme_minimal_hgrid()
-ggsave(sprintf('%s/residuals/moransI_distance.pdf', dir), width = 15, height = 25, units = "cm")
+ggsave(sprintf('%s/residuals/moransI_distance.pdf', dir), width = 8 height = 8 units = "in")
 
 
 # ---------------
@@ -192,7 +192,7 @@ moransI %>%
   geom_line(aes(x=t, y=value)) +
   facet_wrap(~name, scales = "free", ncol=1) +
   theme_minimal_hgrid()
-ggsave(sprintf('%s/residuals/moransI_distance_relative.pdf', dir), width = 15, height = 25, units = "cm")
+ggsave(sprintf('%s/residuals/moransI_distance_relative.pdf', dir), width = 8 height = 8 units = "in")
 
 
 # Adjacency
@@ -230,7 +230,7 @@ moransI %>%
   geom_line(aes(x=t, y=value)) +
   facet_wrap(~name, scales = "free", ncol=1) +
   theme_minimal_hgrid()
-ggsave(sprintf('%s/residuals/moransI_adjacency.pdf', dir), width = 15, height = 25, units = "cm")
+ggsave(sprintf('%s/residuals/moransI_adjacency.pdf', dir), width = 8 height = 8 units = "in")
 
 
 moransI_list <- list()  
@@ -266,4 +266,4 @@ moransI %>%
   geom_line(aes(x=t, y=value)) +
   facet_wrap(~name, scales = "free", ncol=1) +
   theme_minimal_hgrid()
-ggsave(sprintf('%s/residuals/moransI_adjacency_relative.pdf', dir), width = 15, height = 25, units = "cm")
+ggsave(sprintf('%s/residuals/moransI_adjacency_relative.pdf', dir), width = 8 height = 8 units = "in")

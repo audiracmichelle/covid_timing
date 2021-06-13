@@ -27,7 +27,7 @@ ysamples = posterior_predict(
     fit,
     model_data,
     bent_cable=model_data$bent_cable,
-    temporal=TRUE, # model_data$temporal,
+    temporal=model_data$temporal,
     spatial=model_data$spatial
 )$y_samples
 county_lp_var = exp(posterior_predict(

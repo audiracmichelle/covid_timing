@@ -4,6 +4,8 @@ miniconda3/
 
 **/*.err
 **/*.out
+stan/**.rds
+#^  cached
 .DS_Store
 
 fit/**/*.rds

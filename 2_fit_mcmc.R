@@ -18,11 +18,6 @@ parser$add_argument("--intervention", type="character",
     choices=c("decrease", "stayhome"),
     help="intervention_type"
 )
-parser$add_argument("--intervention", type="character",
-    default="decrease",
-    choices=c("decrease", "stayhome"),
-    help="intervention_type"
-)
 parser$add_argument("--bent_cable", action="store_true", default=FALSE,
     help="Fits the model with random lag")
 parser$add_argument("--exclude_ny", action="store_true", default=FALSE,
@@ -48,13 +43,13 @@ parser$add_argument("--use_post_inter", action="store_true", default=FALSE,
 parser$add_argument("--no_pre_inter", action="store_false", default=TRUE, dest="use_pre_inter",
     help="Use interaction variables for pre-trend")
 parser$add_argument("--pre_vars", type="character",
-    default="college age_65_plus black hispanic popdensity",
+    default="college age_65_plus black hispanic",
     help="Control variables for the pre-trend")
 parser$add_argument("--pre_inter_vars", type="character",
-    default="college age_65_plus black hispanic popdensity",
+    default="college age_65_plus black hispanic",
     help="Control variables for the pre-trend  that interact with NCHS")
 parser$add_argument("--post_vars", type="character",
-    default="college age_65_plus black hispanic popdensity",
+    default="college age_65_plus black hispanic",
     help="Control variables for the post-trend")
 parser$add_argument("--post_inter_vars", type="character",
     default="",
@@ -65,9 +60,9 @@ parser$add_argument("--nchains", type="integer", default=3,
     help="Number of chains")
 parser$add_argument("--thin", type="integer", default=10, 
     help="Thinning. Adjust to with chains and iters to more less end up with 800~1000 samples. (More will break memory in analysis.)")
-parser$add_argument("--iter", type="integer", default=2500, 
+parser$add_argument("--iter", type="integer", default=4000, 
     help="Number of iterations for the chain")
-parser$add_argument("--warmup", type="integer", default=500, 
+parser$add_argument("--warmup", type="integer", default=2000, 
     help="Weramup iterations for MCMC Use a larger number for cold starts.")
 parser$add_argument("--init", type="character", default="random",
     help="If distinct from random or '0', it must be the the path to a .rds file with an instance of a fitted model to sample the initial distribution of parameters for the chain.")
