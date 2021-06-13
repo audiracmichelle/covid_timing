@@ -8,7 +8,7 @@ miniconda3/
 
 fit/**/*.rds
 fit/**/*.rds
-results/
+results*
 **/*.Rproj
 
 # History files
