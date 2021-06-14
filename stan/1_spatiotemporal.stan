@@ -219,7 +219,7 @@ transformed parameters {
     tpoly_post
   ) + use_post_inter * post_inter_term;
 
-  // vector[N] log_rate_pre_interv = offset + rand_eff_term + pre_term + state_eff_term + spatial_eff_term;  # + time_term;
+  // vector[N] log_rate_pre_interv = offset + rand_eff_term + pre_term + state_eff_term + spatial_eff_term;  // + time_term;
   vector[N] log_rate = (
     pre_term +
     post_term +
@@ -274,11 +274,11 @@ model {
   // to_vector(rand_eff) ~ normal(0, 100.0);  // tiny reg
 
   for (j in 1:3) {
-    target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); # ./ square(spatial_scale[j]);
+    target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
     // if (spatial_scale_fixed == 0.0) {
-    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); # ./ square(spatial_scale[j]);
+    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
     // } else {
-    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); # ./ square(spatial_scale_fixed);
+    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale_fixed);
     // }
     // fixing one element to zero is enough for identifiability
     // col(spatial_eff, j) ~ normal(0, 10.0);  // tiny reg

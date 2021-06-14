@@ -2,7 +2,7 @@
 
 #SBATCH -J mcmc
 #SBATCH -N 1
-#SBATCH -n 8
+#SBATCH -n 10
 #SBATCH --cpus-per-task 4
 #SBATCH -p small
 #SBATCH -o mcmc.%j.out
