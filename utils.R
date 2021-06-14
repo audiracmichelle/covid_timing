@@ -31,7 +31,8 @@ stan_input_data = function(
   ar_tight_prior_scale=FALSE,
   bent_cable=FALSE,
   spatial=TRUE,
-  temporal=TRUE
+  temporal=TRUE,
+  duration_fixed=0.0
 ) {
   
   if (is.null(old_model_data)) {
@@ -147,10 +148,9 @@ stan_input_data = function(
     offset_baseline = old_model_data$offset_baseline
   }
   
-  
   offset = log(county_train$pop) - mean(log(county_train$pop)) + offset_baseline
 
-  # normalizeing stats
+  # normalizing stats
   if (!is.null(old_model_data)) {
     normalizing_stats = old_model_data$normalizing_stats
   } else {
@@ -276,6 +276,7 @@ stan_input_data = function(
     post_inter_vars=post_inter_vars,
     spatial_scale_fixed=spatial_scale_fixed,
     ar_scale_fixed=ar_scale_fixed,
+    duration_fixed=duration_fixed,
     autocor=autocor,
     tscale=tscale,
     fips_non_zero=1.0 - as.numeric(all_zeros)

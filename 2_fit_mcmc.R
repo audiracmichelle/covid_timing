@@ -38,6 +38,8 @@ parser$add_argument("--spatial_scale", type="double", default=0.0, dest="spatial
     help="When positive it fixes the scale of the spatial process. If 0.0 the scale is learned with BYM scaling.")
 parser$add_argument("--ar_scale", type="double", default=0.0, dest="ar_scale_fixed",
     help="When positive it fixes the scale of the temporal process. If 0.0 the scale is learned with AUTO SCALING.")
+parser$add_argument("--duration", type="double", default=0.0, dest="duration_fixed",
+    help="Only used for bent cable model. If different from 0 duration is fixed.")
 parser$add_argument("--use_post_inter", action="store_true", default=FALSE,
     help="Use interaction variables for post-trend")
 parser$add_argument("--no_pre_inter", action="store_false", default=TRUE, dest="use_pre_inter",
@@ -131,6 +133,7 @@ model_data = stan_input_data(
   use_post_inter=use_post_inter,
   autocor=autocor,
   edges=edges,
+  duration_fixed=duration_fixed,
   ar_tight_prior_scale=ar_tight_prior_scale,
   spatial_scale_fixed=spatial_scale_fixed,
   bent_cable=bent_cable,

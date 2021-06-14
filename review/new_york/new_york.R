@@ -60,7 +60,7 @@ for (p in c("beta_covars_post", "beta_covars_pre", "beta_covars_pre_inter")) {
 }
 dfs = bind_rows(dfs)
 
-p = ggplot(dfs) +
+ggplot(dfs) +
   geom_point(
     aes(
       x=full_median,
@@ -75,16 +75,17 @@ p = ggplot(dfs) +
   scale_color_manual(values=c("red", "black", "black")) +
   scale_size_continuous(range = c(2,4)) +
   guides(size=FALSE) +
-  labs(shape="Parameter", color="Parameter", x="Full model", y="Without NYC") +
+  labs(shape="Parameter", color="Parameter", x="NYC included", y="NYC removed") +
   theme_bw()
-p
+ggsave("review/new_york/params_comparison.pdf", width=5, height=3, units="in")
+
 
 dat_full = read_csv(sprintf("results/%s/vb/full_model_no_temporal/counterfactuals/plotdata_early_late_action_totals_no_ny.csv", what))
 dat_no_ny = read_csv(sprintf("results/%s/vb/no_temporal_no_ny/counterfactuals/plotdata_early_late_action_totals_no_ny.csv", what))
 
 plotdata = bind_rows(
-  mutate(dat_full, src="full"),
-  mutate(dat_no_ny, src="no_ny")
+  mutate(dat_full, src="NYC included"),
+  mutate(dat_no_ny, src="NYC removed")
 ) %>% 
   filter(date > lubridate::ymd("20200325"))
 
@@ -93,11 +94,13 @@ dolim = -30000
 
 ggplot(plotdata) +
   geom_line(aes(x=date, y=pmax(dolim, pmin(med, uplim)), linetype=src, color=action)) +
-  geom_ribbon(aes(x=date, ymax=pmax(dolim, pmin(hi, uplim)), linetype=src, ymin=pmax(dolim, pmin(lo, uplim)), fill=action), alpha=0.2) +
+  geom_ribbon(aes(x=date, ymax=pmax(dolim, pmin(hi, uplim)), linetype=src, ymin=pmax(dolim, pmin(lo, uplim)), fill=action), alpha=0.15) +
   theme_minimal_hgrid() +
   scale_color_manual(values=c("#009E73", "#D55E00")) +
   scale_fill_manual(values=c("#009E73", "#D55E00")) +
-  theme(legend.position = "top", axis.text.y = element_text(size=8)) +
-  labs(fill="", y = "Excess/Averted Deaths", color="") + 
+  theme(axis.text.y = element_text(size=8)) +
+  labs(fill="Timing", color="Timing", y = "Excess/Averted Deaths", color="", linetype="Dataset") + 
   theme(axis.title.x = element_blank()) +
-  guides(fill=FALSE)
+  guides()
+
+ggsave("review/new_york/counterfactual_comparison.pdf", width=6, height=3, units="in")

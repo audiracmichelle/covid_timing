@@ -1,5 +1,6 @@
 library(tidyverse)
 library(rstan)
+library(cowplot)
 library(argparse)
 options(mc.cores = 4)
 source("./utils.R")
@@ -19,6 +20,7 @@ for (i in 1:length(args)) {
     assign(varname, value, envir = .GlobalEnv)
 }
 dir.create(paste0(dir, "/summaries"), recursive=TRUE)
+# dir = "results/decrease/vb/no_temporal_no_cities_post"
 
 fit = read_rds(sprintf("%s/fit.rds", dir))
 model_data = read_rds(sprintf("%s/model_data.rds", dir))
@@ -30,13 +32,15 @@ ysamples = posterior_predict(
     temporal=model_data$temporal,
     spatial=model_data$spatial
 )$y_samples
-county_lp_var = exp(posterior_predict(
+postpred = posterior_predict(
     fit,
     model_data,
     bent_cable=model_data$bent_cable,
     temporal=FALSE,
     spatial=model_data$spatial
-)$log_yhat)
+)
+county_lp_var = exp(postpred$log_yhat)
+prev_trend = exp(postpred$pre_term)
 # county_lp_var = exp(rstan::extract(fit, pars="log_rate")[[1]])
 # county_lp_var = exp(posterior_predict(fit, model_data, spatial=TRUE, bent_cable=bent_cable, temporal=FALSE)$log_yhat)
 # county_lp_var = ysamples
@@ -50,20 +54,24 @@ fiplist = c(
     "Queens"="36081"
 )
 # f1 = "06037"
+use_mask = model_data$use_mask
 
 for (i in 1:length(fiplist)) {
     f1 = fiplist[i]
-    ix = which(county_train$fips == f1)
+    ix = which(model_data$df$fips == f1)
     if (length(ix) == 0)
         next
     pop = 1
-    yi = county_train$y[ix] / pop
+    yi = model_data$y[ix] / pop
     predi = ysamples[, ix] / pop
     predi2 = county_lp_var[ ,ix] / pop
-    yhati = apply(predi, 2, median)
-    yhati2 = apply(predi2, 2, median)
+    yhati = apply(predi, 2, mean)
+    yhati2 = apply(predi2, 2, mean)
+    previ = apply(prev_trend[,ix]/ pop, 2, mean)
     yhati_95 = apply(predi, 2, quantile, .95)
     yhati_05 = apply(predi, 2, quantile, .05)
+    yhati_95_trend = apply(predi2, 2, quantile, .95)
+    yhati_05_trend = apply(predi2, 2, quantile, .05)
     {
         png(sprintf("%s/summaries/curve_%s.png", dir, f1))
         plot(yi, ylim=c(min(yhati_05), max(yhati_95)))
@@ -76,6 +84,35 @@ for (i in 1:length(fiplist)) {
         title(sprintf("FIPS %s", names(fiplist)[i]))
         dev.off()
     }
+
+    plotdata = tibble(
+        med = yhati,
+        trend = yhati2, 
+        y = yi,
+        previ = previ,
+        hi = yhati_95,
+        lo = yhati_05,
+        hi_trend = yhati_95_trend,
+        lo_trend = yhati_05_trend,
+        mask = model_data$mask[ix],
+        date = model_data$df$date[ix]
+    )
+    ggplot(plotdata) +
+        # geom_line(aes(x=date, y=Median, linetype="Y")) +
+        geom_line(aes(x=date, y=trend, linetype="Pre + Post")) +
+        geom_line(aes(x=date, y=previ, linetype="Pre")) +
+        geom_ribbon(aes(x=date, ymax=hi, ymin=lo, fill="90% CI"), alpha=0.1) +
+        # geom_ribbon(aes(x=date, ymax=hi_trend, ymin=lo_trend, fill="Trend"), alpha=0.1) +
+        geom_point(aes(x=date, y=y, shape=factor(mask, levels=c(0, 1))), size=2) +
+        theme_minimal_hgrid() +
+        theme(axis.title.x = element_blank()) +
+        labs(y = "Daily Deaths", linetype="Trend", shape=ifelse(use_mask, "Data", ""), fill="") +
+        guides(fill=FALSE) +
+        scale_linetype_manual(values=c(2, 1)) +
+        scale_shape_manual(values=c(21, 19), labels=c("Observed", "Heldout")) #+
+        # scale_fill_manual(values=c("red", "blue"), labels=c("Negative Binomial Fit (Y)", expression("Trend (N  lambda")))
+    ggsave(sprintf("%s/summaries/curve_%s_pre_post.png", dir, f1), width=6, height=4, units="in")
+        
 }
 
 {

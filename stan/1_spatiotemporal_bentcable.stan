@@ -57,6 +57,13 @@ functions {
           square(t - tau - gam) .* I(t, N, tau + gam, 1e6)
       );
   }
+  real get_duration(real duration_fixed, real duration_unc) {
+    if (duration_fixed == 0.0) {
+      return 6.0 * duration_unc;
+    } else {
+      return duration_fixed;
+    }
+  }
 }
 
 // The input data is a vector 'y' of length 'N'.
@@ -91,6 +98,7 @@ data {
   // Needed for ICAR prior, it will just penalize edge-wise differneces in the spatial effects
   real<lower=0> spatial_scale_fixed;
   real<lower=0> ar_scale_fixed;
+  real<lower=0> duration_fixed;
   int<lower=0> N_edges;
   int<lower=1, upper=N> node1[N_edges];  // node1[i] adjacent to node2[i]
   int<lower=1, upper=N> node2[N_edges];  // and node1[i] < node2[i]
@@ -170,7 +178,7 @@ parameters {
 transformed parameters {
 
   real lag = 11.0 + lag_unc * 6.0;
-  real duration = 6.0 * duration_unc;
+  real duration = get_duration(duration_fixed, duration_unc);
   matrix[N, 2] tpoly_post = cable_post(
     tscale * days_since_intrv, N, tscale * lag, tscale * duration
   );
@@ -248,7 +256,7 @@ transformed parameters {
     tpoly_post
   ) + use_post_inter * post_inter_term;
 
-  // vector[N] log_rate_pre_interv = offset + rand_eff_term + pre_term + state_eff_term + spatial_eff_term;  # + time_term;
+  // vector[N] log_rate_pre_interv = offset + rand_eff_term + pre_term + state_eff_term + spatial_eff_term;  // + time_term;
   vector[N] log_rate = (
     pre_term +
     post_term +
@@ -305,11 +313,11 @@ model {
   // to_vector(rand_eff) ~ normal(0, 100.0);  // tiny reg
 
   for (j in 1:3) {
-    target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); # ./ square(spatial_scale[j]);
+    target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
     // if (spatial_scale_fixed == 0.0) {
-    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); # ./ square(spatial_scale[j]);
+    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
     // } else {
-    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); # ./ square(spatial_scale_fixed);
+    //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale_fixed);
     // }
     // fixing one element to zero is enough for identifiability
     // col(spatial_eff, j) ~ normal(0, 10.0);  // tiny reg

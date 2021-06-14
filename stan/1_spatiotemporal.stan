@@ -273,8 +273,10 @@ model {
     row(rand_eff, i) ~ multi_normal(rep_vector(0.0, order + 1), Omega_rand_eff);
   // to_vector(rand_eff) ~ normal(0, 100.0);  // tiny reg
 
-  for (j in 1:3) {
-    target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
+  if (spatial)
+    for (j in 1:3)
+      target += -0.5 * dot_self(bym_scaled_edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
+
     // if (spatial_scale_fixed == 0.0) {
     //   target += -0.5 * dot_self(edge_weights .* (spatial_eff[node1, j] - spatial_eff[node2, j])); // ./ square(spatial_scale[j]);
     // } else {
@@ -282,7 +284,7 @@ model {
     // }
     // fixing one element to zero is enough for identifiability
     // col(spatial_eff, j) ~ normal(0, 10.0);  // tiny reg
-  }
+
  
   // for (c in 1:N_comps) {
   //   sum(spatial_eff[csorted[(cbrks[c] + 1):(cbrks[c + 1])], 1]) ~ normal(0, 0.001 * csizes[c]);
@@ -311,8 +313,12 @@ model {
   // }
 
   ar_scale ~ normal(0.0, 1.0);
-  time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale_and_marginal[1]);
-  time_term[ar_starts] ~ normal(0.0, ar_scale_and_marginal[2]);
+  if (temporal) {
+    time_term[ar_edges1] ~ normal(autocor * time_term[ar_edges2], ar_scale_and_marginal[1]);
+    time_term[ar_starts] ~ normal(0.0, ar_scale_and_marginal[2]);
+  } else{
+    time_term ~ normal(0, 1.0);  // to make it easier to sampler and don't waste time.
+  }
 
   // time_term[ar_starts] ~ normal(0.0, 0.001);
 
