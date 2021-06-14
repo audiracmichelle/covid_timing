@@ -20,7 +20,7 @@ parser$add_argument("--bent_cable", action="store_true", default=FALSE,
     help="Fits the model with random lag")
 parser$add_argument("--exclude_ny", action="store_true", default=FALSE,
     help="Exclude the counties from NY city")
-parser$add_argument("--exclude_cities_post", action="store_true", default=FALSE,
+parser$add_argument("--exclude_cities_post_inter", action="store_true", default=FALSE,
     help="Exclude the intervention data for Wayne, NYC and LA")
 parser$add_argument("--lag", type="double", default=14.0, 
     help="Lag to use (time from infection to death).")
@@ -85,6 +85,13 @@ ny_counties = c(
   "36005"  # bronx
 )
 
+
+out_cities = c(
+    "36081",  # Queens
+    "26163",  # Wayne Michigan
+    "06037"  # Los Angeles
+)
+
 ## Read county_train
 county_train <- read_feather("data/county_train_.feather") %>%   # 1454 counties
   group_by(fips) %>%
@@ -99,13 +106,11 @@ county_train <- read_feather("data/county_train_.feather") %>%   # 1454 counties
   ungroup()
 valid_fips = unique(county_train$fips)
 
-if (exclude_ny) {
-    if (exclude_post_only) {
-        county_train$mask = !((county_train$fips %in% ny_counties) & (county_train$days_since_intrv > lag))
-    } else {
-        county_train$mask = !(county_train$fips %in% ny_counties)
-    }
-}
+if (exclude_ny)
+    county_train$mask = !(county_train$fips %in% ny_counties)
+if (exclude_cities_post_inter)
+    county_train$mask = !((county_train$fips %in% out_cities) & (county_train$days_since_intrv > lag))
+use_mask = (exclude_ny || exclude_cities_post_inter)
 
 edges = read_csv("data/edges_with_knn2_filt100.csv")
 
@@ -113,7 +118,7 @@ model_data = stan_input_data(
   county_train,
   type=intervention,
   lag=lag,
-  use_mask=exclude_ny,
+  use_mask=use_mask,
   pre_vars=pre_vars,
   post_vars=post_vars,
   post_inter_vars=post_inter_vars,
