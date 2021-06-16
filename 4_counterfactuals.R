@@ -236,7 +236,7 @@ y_samples_actual = posterior_predict(
   # mutate(actual=cumsum(actual)) %>%
   # ungroup() %>%
   na.omit() %>% 
-  filter(!(fips %in% ny_counties))
+  filter(!(fips %in% ny_counties) | !exclude_ny)
 
 
 y_samples_down = posterior_predict(
@@ -258,7 +258,7 @@ y_samples_down = posterior_predict(
   # mutate(down=cumsum(down)) %>%
   # ungroup()  %>%
   na.omit() %>% 
-  filter(!(fips %in% ny_counties))
+  filter(!(fips %in% ny_counties) | !exclude_ny)
 
 
 
@@ -281,7 +281,7 @@ y_samples_up = posterior_predict(
   # mutate(up=cumsum(up)) %>%
   # ungroup() %>%
   na.omit() %>% 
-  filter(!(fips %in% ny_counties))
+  filter(!(fips %in% ny_counties) | !exclude_ny)
 
 
 

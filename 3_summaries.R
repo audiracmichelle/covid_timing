@@ -22,7 +22,11 @@ for (i in 1:length(args)) {
 dir.create(paste0(dir, "/summaries"), recursive=TRUE)
 # dir = "results/decrease/vb/no_temporal_no_cities_post"
 
-fit = read_rds(sprintf("%s/fit.rds", dir))
+if (file.exists(sprintf("%s/fit.rds", dir))){
+    fit = read_rds(sprintf("%s/fit.rds", dir))
+} else {
+    fit =  read_rds(sprintf("%s/fit_mcmc.rds", dir))
+}
 model_data = read_rds(sprintf("%s/model_data.rds", dir))
 
 ysamples = posterior_predict(
@@ -36,7 +40,7 @@ postpred = posterior_predict(
     fit,
     model_data,
     bent_cable=model_data$bent_cable,
-    temporal=FALSE,
+    temporal=model_data$temporal, # FALSE,
     spatial=model_data$spatial
 )
 county_lp_var = exp(postpred$log_yhat)
@@ -94,7 +98,7 @@ for (i in 1:length(fiplist)) {
         lo = yhati_05,
         hi_trend = yhati_95_trend,
         lo_trend = yhati_05_trend,
-        mask = model_data$mask[ix],
+        mask = factor(as.integer(model_data$mask[ix]), levels=c(0,1)),
         date = model_data$df$date[ix]
     )
     ggplot(plotdata) +
@@ -103,7 +107,7 @@ for (i in 1:length(fiplist)) {
         geom_line(aes(x=date, y=previ, linetype="Pre")) +
         geom_ribbon(aes(x=date, ymax=hi, ymin=lo, fill="90% CI"), alpha=0.1) +
         # geom_ribbon(aes(x=date, ymax=hi_trend, ymin=lo_trend, fill="Trend"), alpha=0.1) +
-        geom_point(aes(x=date, y=y, shape=factor(mask, levels=c(0, 1))), size=2) +
+        geom_point(aes(x=date, y=y, shape=mask), size=1) +
         theme_minimal_hgrid() +
         theme(axis.title.x = element_blank()) +
         labs(y = "Daily Deaths", linetype="Trend", shape=ifelse(use_mask, "Data", ""), fill="") +
