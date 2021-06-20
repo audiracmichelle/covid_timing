@@ -22,7 +22,7 @@ parser$add_argument("--bent_cable", action="store_true", default=FALSE,
     help="Fits the model with random lag")
 parser$add_argument("--exclude_ny", action="store_true", default=FALSE,
     help="Exclude the counties from NY city")
-parser$add_argument("--exclude_cities_post", action="store_true", default=FALSE,
+parser$add_argument("--exclude_cities_post_inter", action="store_true", default=FALSE,
     help="Exclude the intervention data for Wayne, NYC and LA")
 parser$add_argument("--lag", type="double", default=14.0, 
     help="Lag to use (time from infection to death).")
@@ -93,6 +93,15 @@ ny_counties = c(
   "36005"  # bronx
 )
 
+out_cities = c(
+    "Queens (NYC)"="36081",
+    "Wayne (MI)"="26163",
+    "Los Angeles (CA)"="06037", 
+    "Kings (WA)"="53033"
+)
+
+## Read c
+
 ## Read county_train
 county_train <- read_feather("data/county_train_.feather") %>%   # 1454 counties
   group_by(fips) %>%
@@ -107,24 +116,19 @@ county_train <- read_feather("data/county_train_.feather") %>%   # 1454 counties
 valid_fips = unique(county_train$fips)
 
 
-if (exclude_ny) {
-    if (exclude_post_only) {
-        county_train$mask = !((county_train$fips %in% ny_counties) & (county_train$days_since_intrv > lag))
-    } else {
-        county_train$mask = !(county_train$fips %in% ny_counties)
-    }
-}
+if (exclude_ny)
+    county_train$mask = !(county_train$fips %in% ny_counties)
+if (exclude_cities_post_inter)
+    county_train$mask = !((county_train$fips %in% out_cities) & (county_train$days_since_intrv > lag))
 
-edges = read_csv("data/fips_adjacency.csv") %>% 
-  # filter(isnbr) %>%
-  filter(dist <= 200) %>%
-  filter(src_lab %in% valid_fips, tgt_lab %in% valid_fips)
+use_mask = (exclude_ny || exclude_cities_post_inter)
+edges = read_csv("data/edges_with_knn2_filt100.csv")
 
 model_data = stan_input_data(
   county_train,
   type=intervention,
   lag=lag,
-  use_mask=exclude_ny,
+  use_mask=use_mask,
   pre_vars=pre_vars,
   post_vars=post_vars,
   post_inter_vars=post_inter_vars,
@@ -133,12 +137,12 @@ model_data = stan_input_data(
   use_post_inter=use_post_inter,
   autocor=autocor,
   edges=edges,
-  duration_fixed=duration_fixed,
   ar_tight_prior_scale=ar_tight_prior_scale,
   spatial_scale_fixed=spatial_scale_fixed,
   bent_cable=bent_cable,
   spatial=spatial,
   temporal=temporal,
+  duration=duration_fixed,
   ar_scale_fixed=ar_scale_fixed
 )
 saveRDS(model_data, paste0(dir, "/model_data.rds"))
@@ -169,6 +173,7 @@ pars = c(
   "scale_rand_eff",
   "spatial_scale",
   "ar_scale"
+#   "log_rate"
 )
 if (bent_cable)
     pars = c(pars, c("lag_unc", "duration_unc"))
@@ -214,8 +219,8 @@ fit_mcmc = rstan::sampling(
   iter=iter,
   warmup=warmup,
   init=init,
-  pars=pars,
+  pars=c("log_rate", pars),
   thin=thin,
   refresh=10 # to measure sampling speed
 )
-saveRDS(fit_mcmc, paste0(dir, "/fit_mcmc.rds"))
+saveRDS(fit_mcmc, paste0(dir, "/fit.rds"))

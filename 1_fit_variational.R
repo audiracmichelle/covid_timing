@@ -56,7 +56,7 @@ parser$add_argument("--post_inter_vars", type="character",
     help="Control variables for the post-trend that interact with NCHS. The timing (days between intervention and threshold) is always added to the list.")
 parser$add_argument("--ar_tight_prior_scale", action="store_true", default=FALSE,
     help="Deprecated!")
-parser$add_argument("--iter", type="double", default=100000, 
+parser$add_argument("--iter", type="double", default=50000, 
     help="Max number of iterations for stan variational algorithm")
 parser$add_argument("--samples", type="integer", default=250, 
     help="Number of sample samples for rstan vb algorithm")
@@ -89,9 +89,10 @@ ny_counties = c(
 
 
 out_cities = c(
-    "36081",  # Queens
-    "26163",  # Wayne Michigan
-    "06037"  # Los Angeles
+    "Queens (NYC)"="36081",
+    "Wayne (MI)"="26163",
+    "Los Angeles (CA)"="06037", 
+    "Kings (WA)"="53033"
 )
 
 ## Read county_train
