@@ -1,0 +1,10 @@
+Rscript --vanilla 2_fit_mcmc.R --dir "decrease/mcmc/naked" --intervention decrease --init "results/decrease/vb/naked/fit.rds" --no_temporal --no_spatial --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "decrease/mcmc/no_temporal" --intervention decrease --init "results/decrease/vb/no_temporal/fit.rds" --no_temporal --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "decrease/mcmc/temporal05" --intervention decrease --init "results/decrease/vb/full_model/fit.rds" --autocor 0.5 --ar_scale 0.05 --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "decrease/mcmc/temporal10" --intervention decrease --init "results/decrease/vb/full_model/fit.rds" --autocor 0.5 --ar_scale 0.1 --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "decrease/mcmc/temporal15" --intervention decrease --init "results/decrease/vb/full_model/fit.rds" --autocor 0.5 --ar_scale 0.15 --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "stayhome/mcmc/naked" --intervention stayhome --init "results/stayhome/vb/naked/fit.rds" --no_temporal --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "stayhome/mcmc/no_temporal" --intervention stayhome --init "results/stayhome/vb/no_temporal/fit.rds" --no_temporal --no_spatial --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "stayhome/mcmc/temporal05" --intervention stayhome --init "results/stayhome/vb/full_model/fit.rds" --autocor 0.5 --ar_scale 0.05 --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "stayhome/mcmc/temporal10" --intervention stayhome --init "results/stayhome/vb/full_model/fit.rds" --autocor 0.5 --ar_scale 0.1 --nchains 4 --iter 1600 --warmup 800 --thin 8  
+Rscript --vanilla 2_fit_mcmc.R --dir "stayhome/mcmc/temporal15" --intervention stayhome --init "results/stayhome/vb/full_model/fit.rds" --autocor 0.5 --ar_scale 0.15 --nchains 4 --iter 1600 --warmup 800 --thin 8  

@@ -1,0 +1,200 @@
+library(tidyverse)
+library(magrittr)
+library(feather)
+library(collections)
+library(igraph)
+library(lubridate)
+options(mc.cores = parallel::detectCores())
+source("../utils.R")
+
+
+## Read county_train
+county_train <- read_feather("../data/county_train_.feather") %>%   # 1454 counties
+  filter(date <= ymd("20200420")) %>%   # 1021 counties
+  group_by(fips) %>%
+  filter(
+    max(days_since_thresh) >= 7,  # min data points, 909 counties
+    max(cum_deaths) >= 1 # there as an outbreak, 400 counties
+  ) %>%  
+  # filter(!((state == "New York") & (days_since_intrv_stayhome >= 14))) %>%
+  ungroup()
+length(unique(county_train$fips))
+
+
+model_data = stan_input_data(county_train, type="stayhome", lag=14)
+
+model = rstan::stan_model("../stan_models/7b_states_concave.stan")
+print(paste("Compiled model:", "stayhome/7b_states_concave"))
+
+
+parnames = c(
+  "nchs_pre", "nchs_post", "beta_covars_pre",
+  "beta_covars_post", "beta_covars_post",
+  "baseline_pre", "baseline_post",
+  "overdisp",
+  "rand_eff_lin", "state_eff_lin",
+  "rand_eff_quad", "state_eff_quad",
+  "state_eff", "rand_eff",
+  "Omega_rand_eff", "Omega_state_eff",
+  "scale_state_eff", "scale_rand_eff"
+)
+
+fit = rstan::vb(
+  model, 
+  data=model_data,
+  adapt_engaged=FALSE,
+  eta = 0.25,
+  iter=15000,
+  tol_rel_obj=0.003,
+  adapt_iter=250,
+  pars=parnames,
+  init="0",
+  output_samples=250
+)
+saveRDS(fit, "stayhome_fitted/7_states.rds")
+
+
+pars = rstan::extract(fit, pars=parnames)
+
+# create list of parameter inialization=
+nchains = 4
+init_lists = map(1:nchains, function(i) {
+  map(pars, function(par) {
+    if (length(dim(par))==1)
+      return (par[i])
+    if (length(dim(par))==2)
+      return (par[i, ])
+    if (length(dim(par))==3)
+      return (par[i, , ])
+    print("error")
+  })
+})
+# annoying but must do below becaue R indexing kills a dimension
+for (i in 1:nchains) {
+  init_lists[[i]]$beta_covars_post = matrix(init_lists[[i]]$beta_covars_post, nrow=1)
+  init_lists[[i]]$state_eff_quad = matrix(init_lists[[i]]$state_eff_quad, ncol=1)
+  init_lists[[i]]$rand_eff_quad = matrix(init_lists[[i]]$rand_eff_quad, ncol=1)
+}
+
+fit2 = rstan::sampling(
+  model,
+  data=model_data,
+  chains=nchains,
+  iter=5000,
+  warmup=4000,
+  save_warmup=FALSE,
+  pars=parnames,
+  thin=10,
+  init=init_lists
+)
+
+saveRDS(fit2, "stayhome_fitted/7_states_mcmc.rds")
+
+# revised_2 uses the joint dataset with min cum deahts >= 1
+# saveRDS(fit, paste("./model_full_rstan_var_revised_2.rds", sep = ""))
+
+# 14 experiment
+# saveRDS(fit, paste("./model_full_rstan_var_revised_.rds", sep = ""))
+
+# partially removes the full state of ny
+# saveRDS(fit, paste("./model_full_rstan_var_revised_no_ny.rds", sep = ""))
+# fit = read_rds("model_full_rstan_var_revised_no_ny.rds")
+# this one uses the old dataset
+# saveRDS(fit, paste("./model_full_rstan_var.rds", sep = ""))
+
+# saveRDS(fit2, paste("./model_full_rstan_mcmc.rds", sep = ""))
+# fit = readRDS("./model_full_rstan_var.rds")
+
+# model = readRDS(paste("./model_full_rstan.rds", sep = ""))
+
+#### #### 
+## county_fit
+
+# county_fit <- model 
+#   posterior_predict(county_train, draws = 500)
+# county_fit_var = rstan::extract(fit, pars="y_new")$y_new[-(1:500), ]
+
+# county_fit = rstan::extract(fit2, pars="y_new")$y_new
+# county_lp = exp(rstan::extract(fit2, pars="log_rate")$log_rate)
+
+# saveRDS(county_fit_var, "./county_fit_var.rds")
+# saveRDS(county_lp_var, "./county_fit_lp_var.rds")
+
+# saveRDS(county_fit, "./county_fit.rds")
+# saveRDS(county_lp, "./county_fit_lp.rds")
+
+# let's validate for some location and then call it a day
+# it's working !
+# county_lp_var = exp(rstan::extract(fit, pars="log_rate")$log_rate)
+# # f1 = "06037"  #L.A
+# f1 = "36081"  # queens NY
+# # f1 = "53033"  # king county WA
+# ix = which(county_train$fips == f1)
+
+# yi = county_train$y[ix]
+# yhati = apply(county_lp_var[ ,ix], 2, median)
+# yhati_95 = apply(county_lp_var[ ,ix], 2, quantile, .95)
+# yhati_05 = apply(county_lp_var[ ,ix], 2, quantile, .05)
+
+# # ymeani = apply(county_fit_var[ ,ix], 2, mean)
+# plot(yi)
+# lines(yhati, col="red")
+# lines(yhati_95, col="blue", lty=2)
+# lines(yhati_05, col="blue", lty=2)
+# dbtwn = county_train[ix, ]
+# dbtwn = dbtwn[dbtwn$days_since_intrv_stayhome >= 0, ]
+# dbtwn = dbtwn$days_since_thresh[1]
+# abline(v=dbtwn + 12, lty=3, col="gray")
+# title(sprintf("FIPS %s", f1))
+# # 
+# # county_eval <- read_feather("../../county_train_.feather") %>%   # 1454 counties
+# #   filter(date <= ymd("20200420")) %>%   # 1021 counties
+# #   group_by(fips) %>%
+# #   filter(
+# #     max(days_since_thresh) >=a 7,  # min data points, 909 counties
+# #     max(cum_deaths) >= 1 # there as an outbreak, 400 counties
+# #   ) %>%  
+# #   ungroup() %>% 
+# #   filter(fips %in% unique(county_train$fips))
+# county_eval = county_train
+
+# ix = which(county_eval$fips == f1)
+# predicted = my_posterior_predict(fit, county_eval, type="stayhome", lag=14, states=TRUE, eval_pre = TRUE)
+# pre_term = apply(predicted$pre_term[ ,ix], 2, median)
+# post_term = apply(predicted$post_term[ ,ix], 2, median)
+# log_yhat = apply(predicted$log_yhat[, ix], 2, median)
+
+# plotdata = tibble(
+#   prev_trend=exp(pre_term),
+#   # intervention_effect=post_term,
+#   predicted=exp(log_yhat),
+#   date=county_eval$date[ix]
+# ) %>% 
+#   pivot_longer(-date)
+
+# plotdata2 = tibble(
+#   y=county_eval$y[ix],
+#   date=county_eval$date[ix],
+#   days_since_intrv = county_eval$days_since_intrv_stayhome[ix]
+# ) %>% mutate(
+#   type=case_when(
+#     (days_since_intrv < 14) ~ "dataset (pre-intervention)",
+#     TRUE ~ "heldout (post-intervation)"
+#   )
+# )
+
+
+# ggplot(plotdata) +
+#   geom_line(aes(x=date, y=value, color=name)) +
+#   geom_point(aes(x=date, y=y, shape=type), data=plotdata2) +
+#   geom_vline(aes(xintercept=date[1] + dbtwn - 1), color="black", lty=2) +
+#   geom_vline(aes(xintercept=date[1] + 14 + dbtwn - 1), color="black", lty=3) +
+#   theme_minimal() +
+#   scale_shape_manual(values=c(19, 21))
+
+# overdisp = rstan::extract(fit, pars="overdisp")$overdisp
+# hist(overdisp, col=alpha("blue", 0.5), main="overdisp posterior")
+
+# summary(fit, pars="beta_covars_post")
+
+# plot(fit, pars="state_eff")

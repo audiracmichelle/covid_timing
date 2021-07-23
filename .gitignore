@@ -1,7 +1,17 @@
 **/res_maps.pdf
 **/res_rel_maps.pdf
+miniconda3/
 
+**/*.err
+**/*.out
+stan/**.rds
+#^  cached
 .DS_Store
+
+fit/**/*.rds
+fit/**/*.rds
+results*
+**/*.Rproj
 
 # History files
 .Rhistory
