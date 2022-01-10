@@ -11,7 +11,7 @@ source("./utils.R")
 
 
 parser = ArgumentParser()
-parser$add_argument("--dir", type="character", default="100k_ar1", 
+parser$add_argument("--dir", type="character", default="mcmc_continue2/decrease/no_temporal", 
     help="Directory where results where saved")
 parser$add_argument("--shift_days", type="integer", default=10, 
     help="How much to shift up and down.")
@@ -79,6 +79,7 @@ county_fit_posterior = posterior_predict(
   spatial=spatial,
   temporal=FALSE
 )
+
 yhat_no_rand_eff = exp(county_fit_posterior$log_yhat) # / exp( county_fit_posterior$rand_eff)
 county_fit = yhat_no_rand_eff %>% 
   melt() %>% 
@@ -103,6 +104,7 @@ county_fit_posterior_down = posterior_predict(
   temporal=FALSE
 )
 yhat_no_rand_eff = exp(county_fit_posterior_down$log_yhat) # / exp(county_fit_posterior$rand_eff)
+
 county_fit_down = yhat_no_rand_eff %>% 
   melt() %>% 
   `names<-`(c("sim", "row", "yhat")) %>% 
@@ -179,7 +181,7 @@ county_down = county_fit_down  %>%
   ) %>%
   mutate(type="early")
 
-  plotdata = bind_rows(
+plotdata = bind_rows(
   county,
   county_up,
   county_down
@@ -190,26 +192,61 @@ uplim = 30
 dolim = 0.01
 lagat = 14
 
-ggplot(plotdata) +
-  geom_line(aes(x=days_since_thresh, y=pmax(dolim, pmin(fit_med, uplim)), color=type), lwd=1) +
-#   geom_vline(aes(xintercept=days_btwn_thresh + lagat), data=interv_day, lty=2) +
-  geom_ribbon(aes(x=days_since_thresh, ymax=pmax(dolim, pmin(fit_hi, uplim)), ymin=pmax(dolim, pmin(fit_lo, uplim)), fill=type), alpha=0.4) +
-  scale_y_log10() +
-  # facet_wrap(~ paste("NCHS", nchs)) +
-  facet_wrap(~ paste("NCHS", nchs), scales = "free_y") +
-    guides(color=FALSE) +
-  # scale_y_continuous(
-  #   limits=c(-5.5, 2.2),
-  #   breaks=c(-1, 0, 1),
-  #   labels=c("0.1", "1", "10")
-  # ) +
-  theme_minimal_hgrid() +
-  scale_color_manual(values=c("#0072B2", "#009E73", "#D55E00")) +
-  scale_fill_manual(values=c("#0072B2", "#009E73", "#D55E00")) +
-  theme(legend.position = "top") +
-  labs(fill="", y = "Deaths per 1 million", x="Days since threshold deaths")
+plots = list()
 
-ggsave(sprintf("%s/counterfactuals/counterfactuals_%s.pdf", dir, suffix), width=8,height=4,units="in")
+for (i in 1:6) {
+  tmp = filter(plotdata, nchs==i) %>% 
+    mutate(
+      fit_hi=pmax(dolim, pmin(fit_hi, uplim)),
+      fit_lo=pmax(dolim, pmin(fit_lo, uplim)),
+      fit_med=pmax(dolim, pmin(fit_med, uplim))
+    )
+  m = log10(min(tmp$fit_lo))
+  M = log10(max(tmp$fit_hi))
+  breaks = round(10^seq(m, M, length.out=6), digits = 2)
+  plots[[i]] = ggplot(tmp) +
+    geom_line(aes(x=days_since_thresh, y=fit_med, color=type), lwd=1) +
+  #   geom_vline(aes(xintercept=days_btwn_thresh + lagat), data=interv_day, lty=2) +
+    geom_ribbon(aes(x=days_since_thresh, ymax=fit_hi, ymin=fit_lo, fill=type), alpha=0.4) +
+    scale_y_log10(n.breaks=6, breaks=breaks) +
+    # facet_wrap(~ paste("NCHS", nchs)) +
+    # facet_wrap(~ paste("NCHS", nchs), scales = "free_y") +
+    guides(color=FALSE) +
+    # scale_y_continuous(
+    #   limits=c(-5.5, 2.2),
+    #   breaks=c(-1, 0, 1),
+    #   labels=c("0.1", "1", "10")
+    # ) +
+    theme_cowplot() +
+    scale_color_manual(values=c("#0072B2", "#009E73", "#D55E00")) +
+    scale_fill_manual(values=c("#0072B2", "#009E73", "#D55E00")) +
+    theme(
+      legend.position = "none"#,
+      # axis.title.x = element_text(size=10),
+      # axis.title.y = element_text(size=10)
+    ) +
+    labs(fill="", y = "Deaths per 1 million", x="Days since threshold deaths")
+  if (i == 1)
+    plots[[i]] = plots[[i]] +
+      theme(
+        legend.title = element_blank(),
+        legend.margin= margin(t=-0.05, b=0.05, r=0.05, l=0.05, unit="in"),
+        legend.position = c(0.05, 0.85),
+        legend.box.background = element_rect(colour = "black")
+      )
+}
+
+plot_grid(
+  plotlist=plots,
+  align="v",
+  axis = "t",
+  # rel_heights = c(2, rep(1, 5)),
+  ncol=3,
+  # vjust=0,
+  labels=paste0(LETTERS[1:6], ")")
+)
+
+ggsave(sprintf("%s/counterfactuals/counterfactuals_%s.pdf", dir, suffix), width=10,height=6, units="in")
 
 
 counterf_eval_data = model_data$df
